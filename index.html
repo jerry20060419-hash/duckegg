@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>《蛋裡是什麼鴨：雙人連線大農場 ＆ Boss 共鬥版》</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js" defer></script>
+</head>
+<body>
+
+  <!-- 2D 巨型雙領地與中央 Boss 共鬥畫布 -->
+  <canvas id="worldCanvas"></canvas>
+
+  <!-- 頂部狀態與線上伺服器導覽列 -->
+  <header class="top-hud">
+    <div class="hud-brand">
+      <span class="brand-title">🦆 蛋裡是什麼鴨：雙人連線共鬥版</span>
+      <button class="btn-sm btn-outline" onclick="Game.openAuthModal()">
+        👤 <span id="hudUsername">未登入</span> (切換/創建帳號)
+      </button>
+    </div>
+
+    <div class="hud-stats">
+      <div class="stat-pill" title="打Boss、獻祭淘汰鴨或幫夥伴孵蛋可賺取鴨幣">
+        💰 鴨幣: <span id="hudCoins" style="color:#fde047">300</span>
+      </div>
+      <div class="stat-pill" title="你巨型領地內的怪鴨數量">
+        🦆 鴨群: <span id="hudDuckCount">4 / 24</span>
+      </div>
+      <div class="stat-pill" title="孵化鴨窩裡的鴨蛋數量（非變異蛋1分鐘、變異蛋3分鐘自動破殼）">
+        🪺 鴨窩: <span id="hudEggCount">1 / 12</span>
+      </div>
+      <div class="stat-pill" style="border-color:#facc15;cursor:pointer;" onclick="Game.openSquadAndBossModal()" title="點擊編成你的 3 隻出戰戰鴨小隊">
+        ⚔️ 3鴨小隊戰力: <span id="hudSquadPower" style="color:#fde047">0</span>
+      </div>
+      <div class="stat-pill pit-pill" onclick="WorldCanvas.focusOnPit()" title="點擊鏡頭飛往中央深淵 Boss 競技場（把鴨子丟進黑洞可累積各階級祭品，每階滿30隻可召喚Boss）">
+        <span id="hudPitStatus">🕳️ 祭品(需30): 普0 藍0 紫0 金0 紅0</span>
+      </div>
+    </div>
+
+    <div class="hud-server-bar">
+      <span id="netStatusText" class="net-status-badge">🟢 本機/多開即時同步</span>
+      <button class="btn-sm btn-gold" onclick="NetEngine.createPeerRoom()">🌐 建立線上房號</button>
+      <input id="roomCodeInput" class="room-input" type="text" placeholder="房號 DUCK-XXXX" />
+      <button class="btn-sm btn-blue" onclick="NetEngine.joinPeerRoom(document.getElementById('roomCodeInput').value)">加入伺服器</button>
+      <button class="btn-sm btn-outline" onclick="document.getElementById('serverGuideModal').classList.remove('hidden')">❓ 連線說明</button>
+    </div>
+  </header>
+
+  <!-- 左側：雙人巨型領地導覽、📊即時連線Boss傷害統計榜、全服頻道 -->
+  <aside class="left-sidebar">
+    <!-- 📊 即時連線 Boss 傷害統計榜 (Boss 戰時自動展開) -->
+    <div id="liveBossDamagePanel" class="boss-damage-panel hidden"></div>
+
+    <div class="sidebar-card">
+      <div class="card-title">
+        <span>🗺️ 雙人巨型領地導覽 (點擊前往)</span>
+      </div>
+      <div id="worldPlotsDirectory" class="plots-dir-list"></div>
+    </div>
+
+    <div class="sidebar-card">
+      <div class="card-title">
+        <span>📢 連線廣播 ＆ 雙人聊天室</span>
+      </div>
+      <div id="worldEventLog" class="event-log-box">
+        <div class="log-line">✨ 歡迎來到《蛋裡是什麼鴨：雙人連線共鬥版》！把 ♂公鴨 與 ♀母鴨 拖進右上角【💕生蛋交配區】即可產下 85% 雙親外觀後代！</div>
+      </div>
+      <div class="chat-row">
+        <input id="chatInput" class="chat-input" type="text" placeholder="輸入聊天訊息按 Enter..." onkeydown="if(event.key==='Enter') Game.sendChatMessage()" />
+        <button class="btn-sm btn-blue" onclick="Game.sendChatMessage()">發送</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 右側：點擊怪鴨或鴨蛋時的詳細基因、性別、戰力與互動面板 -->
+  <aside id="inspectorPanel" class="inspector-panel hidden">
+    <div id="inspectorContent"></div>
+  </aside>
+
+  <!-- 頂部彈出：收到在線夥伴的【組隊打Boss邀請】/【跨場相親】/【交易】橫幅 -->
+  <div id="incomingRequestBanner" class="incoming-banner hidden">
+    <span id="incomingRequestText" style="font-size:13px;font-weight:700;"></span>
+    <button class="btn-sm btn-gold" onclick="Game.acceptIncomingInteraction()">✅ 接受並執行</button>
+    <button class="btn-sm btn-danger" onclick="Game.rejectIncomingInteraction()">✕ 婉拒</button>
+  </div>
+
+  <!-- 底部中央快捷操作列 -->
+  <nav class="bottom-dock">
+    <button class="btn-md btn-gold" onclick="WorldCanvas.focusOnPlot(Game.getMyPlotIndex(), 0.72)">
+      🏠 回我的巨型鴨場
+    </button>
+    <button class="btn-md btn-pink" onclick="Game.autoAssignBreedersOrRescue()">
+      💕 一鍵派公母鴨進交配區
+    </button>
+    <button class="btn-md btn-danger" onclick="Game.openSquadAndBossModal()">
+      ⚔️ 3+3 聯合編隊 ＆ 打Boss
+    </button>
+    <button class="btn-md btn-purple" onclick="WorldCanvas.focusOnPit()">
+      🕳️ 中央Boss競技場
+    </button>
+    <button class="btn-md btn-blue" onclick="Game.openCompendiumModal()">
+      📖 獵奇基因圖鑑
+    </button>
+    <button class="btn-md btn-outline" onclick="Game.openUpgradeModal()">
+      ⬆️ 容量與突變升級
+    </button>
+    <button class="btn-sm btn-outline" onclick="WorldCanvas.adjustZoom(0.12)" title="放大視角">➕</button>
+    <button class="btn-sm btn-outline" onclick="WorldCanvas.adjustZoom(-0.12)" title="縮小視角">➖</button>
+  </nav>
+
+  <!-- Toast 浮動提示容器 -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- ========================================================================
+       Modal 1: 帳號創建 / 登入 / 本地持久化帳號快速切換
+       ======================================================================== -->
+  <div id="authModal" class="modal-backdrop hidden">
+    <div class="modal-card" style="max-width:540px;">
+      <div class="modal-header">
+        <div class="modal-title">🦆 創建或登入你的巨型鴨場帳號</div>
+        <button class="btn-close" onclick="if(Game.currentUser) document.getElementById('authModal').classList.add('hidden')">✕</button>
+      </div>
+      <p style="font-size:13px;color:#cbd5e1;margin-bottom:12px;">
+        本世界專為<b>雙人連線同玩</b>設計，僅顯示已登入過系統的玩家領地（無常駐NPC）。所有帳號、怪鴨、戰隊與圖鑑皆保存在本地資料庫，關閉重開後完整保留！
+      </p>
+      <div class="auth-form-box">
+        <label style="font-size:13px;font-weight:700;color:#fde047;">玩家帳號名稱：</label>
+        <input id="authUsername" class="form-input" type="text" placeholder="例如：玩家一號、鴨王阿傑..." onkeydown="if(event.key==='Enter') Game.submitAuthForm()" />
+        <label style="font-size:13px;font-weight:700;color:#94a3b8;">簡易密碼 / PIN 碼（選填，可留空免密登入）：</label>
+        <input id="authPin" class="form-input" type="password" placeholder="選填密碼" onkeydown="if(event.key==='Enter') Game.submitAuthForm()" />
+        <button class="btn-lg btn-gold full-w" onclick="Game.submitAuthForm()">🚀 進入雙人巨型大農場 (自動註冊/登入)</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-size:14px;font-weight:800;color:#38bdf8;">📂 本機已記錄的玩家帳號（點擊一鍵登入）：</div>
+        <button class="btn-sm btn-danger" onclick="Game.resetAllWorldData()" title="一鍵清空本機與伺服器所有帳號與領地紀錄">🧹 清空全部帳號資料</button>
+      </div>
+      <div>
+        <div id="savedAccountsList" class="saved-accounts-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       Modal 2: ⚔️ 怪鴨戰隊編成 ＆ 雙人連線組隊討伐 Boss 大廳
+       ======================================================================== -->
+  <div id="squadBossModal" class="modal-backdrop hidden">
+    <div class="modal-card" style="max-width:780px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">⚔️ 怪鴨戰隊編成 ＆ 連線組隊討伐 Boss</div>
+          <div id="mySquadPowerBadge" style="font-size:14px;font-weight:800;color:#38bdf8;margin-top:4px;"></div>
+        </div>
+        <button class="btn-close" onclick="document.getElementById('squadBossModal').classList.add('hidden')">✕</button>
+      </div>
+
+      <div class="social-columns">
+        <div class="social-col">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="col-title" style="margin:0;">🦆 勾選最多 3 隻出戰戰鴨 (越稀有戰力越高)：</span>
+            <button class="btn-sm btn-gold" onclick="Game.autoFillBestSquad()">⚡ 一鍵最高戰力3隻</button>
+          </div>
+          <div id="squadDuckPickerList" class="duck-pick-list"></div>
+        </div>
+
+        <div class="social-col">
+          <div class="col-title">🐙 選擇要組隊討伐的深淵 Boss：</div>
+          <div id="bossTierPickerList" class="duck-pick-list"></div>
+        </div>
+      </div>
+
+      <div class="social-desc">
+        💡 <b>30隻祭品召喚制 ＆ 3+3 聯合戰隊說明</b>：把鴨子丟進中央黑洞<b>只會累積祭品池與賺取鴨幣，絕不會自動強制開打 Boss</b>！每階 Boss 皆需累計獻祭滿 <b>30 隻對應品質鴨子</b>才可手動召喚，且<b>Boss 越稀有血量越高、護甲減傷越強（限時 90 秒內擊破）</b>！
+      </div>
+
+      <div class="social-btn-row">
+        <button class="btn-lg btn-danger" style="flex:1;" onclick="Game.launchCoopBossRaid(true)">
+          🚨 發起討伐並向在線玩家發送【組隊戰鬥邀請】！
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       Modal 3: 跨鴨場「借種相親」＆「點對點交換怪鴨」互動視窗
+       ======================================================================== -->
+  <div id="socialModal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div id="socialModalTitle" class="modal-title">🤝 跨場互動</div>
+        <button class="btn-close" onclick="document.getElementById('socialModal').classList.add('hidden')">✕</button>
+      </div>
+
+      <div class="tab-bar">
+        <button id="tabBtnBreed" class="tab-btn active" onclick="Game.switchSocialTab('breed')">💕 跨鴨場借種相親 (85%雙親遺傳混血蛋)</button>
+        <button id="tabBtnTrade" class="tab-btn" onclick="Game.switchSocialTab('trade')">🔄 點對點怪鴨交換 (互換鴨子)</button>
+      </div>
+
+      <div class="social-columns">
+        <div class="social-col">
+          <div class="col-title">🏠 選擇你鴨場的 1 隻鴨子：</div>
+          <div id="socialMyDuckList" class="duck-pick-list"></div>
+        </div>
+        <div class="social-col">
+          <div class="col-title">🏡 選擇對方鴨場的 1 隻鴨子：</div>
+          <div id="socialTargetDuckList" class="duck-pick-list"></div>
+        </div>
+      </div>
+
+      <div id="socialActionFooter"></div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       Modal 4: 鴨場基因升級與擴建商店
+       ======================================================================== -->
+  <div id="upgradeModal" class="modal-backdrop hidden">
+    <div class="modal-card" style="max-width:600px;">
+      <div class="modal-header">
+        <div class="modal-title">⬆️ 巨型鴨場擴建 ＆ 高階突變研究所</div>
+        <button class="btn-close" onclick="document.getElementById('upgradeModal').classList.add('hidden')">✕</button>
+      </div>
+      <div id="upgradeListContainer" class="upgrade-list"></div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       Modal 5: 獵奇怪鴨全圖鑑 (15 套主題共鳴 / 45 種變異部位與戰力一覽)
+       ======================================================================== -->
+  <div id="compendiumModal" class="modal-backdrop hidden">
+    <div class="modal-card" style="max-width:880px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">📖 獵奇怪鴨基因與戰力全圖鑑</div>
+          <div id="compendiumStats" style="font-size:13px;color:#38bdf8;margin-top:4px;"></div>
+        </div>
+        <button class="btn-close" onclick="document.getElementById('compendiumModal').classList.add('hidden')">✕</button>
+      </div>
+      <div id="compendiumGrid" class="compendium-grid"></div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       Modal 6: 雙人連線說明
+       ======================================================================== -->
+  <div id="serverGuideModal" class="modal-backdrop hidden">
+    <div class="modal-card" style="max-width:600px;">
+      <div class="modal-header">
+        <div class="modal-title">🌐 雙人連線與遊玩指南</div>
+        <button class="btn-close" onclick="document.getElementById('serverGuideModal').classList.add('hidden')">✕</button>
+      </div>
+      <div style="font-size:13px;line-height:1.7;color:#e2e8f0;display:flex;flex-direction:column;gap:10px;">
+        <div>
+          <b style="color:#fde047;">1. 雙人跨網或區網連線：</b><br>
+          一人點擊右上角「<b>🌐 建立線上房號</b>」取得 <code>DUCK-XXXX</code> 代碼，另一人輸入代碼點「<b>加入伺服器</b>」，兩人的巨型鴨場（1號左領地、2號右領地）就會即時同步！
+        </div>
+        <div>
+          <b style="color:#f472b6;">2. 💕 3 組公母交配室（60秒產卵 / 3%變異蛋）＆ ⏱️ 自動孵化倒計時：</b><br>
+          右上角規劃了 <b>3 組公母交配室</b>，每組放入 1隻♂公鴨 與 1隻♀母鴨 即可每 <b>60 秒</b>產出 1 顆蛋（<b>97% 雙親外觀遺傳、3% 基因變異蛋</b>）。<b>一般遺傳蛋 1 分鐘自動孵化</b>，<b>🧬變異蛋則需 3 分鐘自動孵化</b>！
+        </div>
+        <div>
+          <b style="color:#38bdf8;">3. ⚔️ 3+3 聯合戰隊自動打 Boss（即時傷害榜）：</b><br>
+          點擊底部「<b>⚔️ 3+3 聯合編隊 ＆ 打Boss</b>」，每邊可派 <b>3 隻主力戰鴨</b>組成聯合隊伍自動圍攻 Boss（不需滑鼠連點），左上角會即時統計雙方對 Boss 的<b>總傷害量與傷害佔比</b>！
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="duck_data.js"></script>
+  <script src="world_canvas.js"></script>
+  <script src="multiplayer_server.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
