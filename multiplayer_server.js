@@ -20,11 +20,9 @@ const NetEngine = {
   hasLocalHttpServer: false,
   reconnectTimer: null,
   fbEnabled: false,
-  fbDb: null,
-  fbWorldRef: null,
-  fbPresenceRef: null,
-  fbMyPresenceRef: null,
-  fbEventsRef: null,
+  fbBaseUrl: '',
+  fbEventSource: null,
+  fbSeenEventIds: new Set(),
   fbConnectedAt: 0,
 
   async init() {
@@ -41,11 +39,22 @@ const NetEngine = {
     const customRoom = params.get('room');
     this.roomCode = (customRoom || this.FIXED_ROOM_ID).trim().toUpperCase().replace(/[.#$\[\]]/g, '_');
 
-    // 優先啟用 Firebase 雲端即時資料庫（穩定跨網同步 + 伺服器端儲存帳號與領地）
+    // 優先啟用 Firebase 雲端即時資料庫（REST + SSE 連線，跨網路穩定同步 ＆ 伺服器端持久化）
     if (this.initFirebase()) {
       setInterval(() => {
         this.sendHeartbeat();
       }, 3000);
+      setInterval(() => {
+        this.fbPollBackup();
+      }, 2500);
+      window.addEventListener('beforeunload', () => {
+        if (this.fbEnabled && this.fbBaseUrl) {
+          fetch(`${this.fbBaseUrl}/presence/${this.clientId}.json`, {
+            method: 'DELETE',
+            keepalive: true
+          }).catch(() => {});
+        }
+      });
       return;
     }
 
@@ -84,86 +93,143 @@ const NetEngine = {
 
   initFirebase() {
     const cfg = window.FIREBASE_CONFIG;
-    if (typeof firebase === 'undefined' || !cfg || !cfg.databaseURL || !cfg.databaseURL.trim()) {
+    if (!cfg || !cfg.databaseURL || !cfg.databaseURL.trim()) {
       return false;
     }
+    const cleanRoot = cfg.databaseURL.trim().replace(/\/+$/, '');
+    this.fbBaseUrl = `${cleanRoot}/rooms/${this.roomCode}`;
+    this.fbEnabled = true;
+    this.fbConnectedAt = Date.now();
+    this.updateNetStatusUI('🟡 正在連線至 Firebase 雲端伺服器...');
+
+    // 1. 立即讀取雲端世界存檔與在線名單
+    this.fbPollBackup(true);
+
+    // 2. 開啟 Firebase Realtime Database 即時串流 (SSE)
     try {
-      if (!firebase.apps || firebase.apps.length === 0) {
-        firebase.initializeApp(cfg);
-      }
-      this.fbDb = firebase.database();
-      this.fbEnabled = true;
-      this.fbConnectedAt = Date.now();
+      const es = new EventSource(`${this.fbBaseUrl}.json`);
+      this.fbEventSource = es;
 
-      const base = `rooms/${this.roomCode}`;
-      this.fbWorldRef = this.fbDb.ref(`${base}/world`);
-      this.fbPresenceRef = this.fbDb.ref(`${base}/presence`);
-      this.fbMyPresenceRef = this.fbPresenceRef.child(this.clientId);
-      this.fbEventsRef = this.fbDb.ref(`${base}/events`);
-
-      this.updateNetStatusUI('🟡 正在連線至 Firebase 雲端伺服器...');
-
-      this.fbDb.ref('.info/connected').on('value', (snap) => {
-        if (snap.val() === true) {
-          this.fbMyPresenceRef.onDisconnect().remove();
-          this.sendHeartbeat();
-          this.updateNetStatusUI('🟢 Firebase 雲端伺服器連線中');
-        } else {
-          this.updateNetStatusUI('🟠 Firebase 斷線重連中...');
-        }
+      es.addEventListener('open', () => {
+        this.updateNetStatusUI('🟢 Firebase 雲端伺服器連線中');
+        this.sendHeartbeat();
       });
 
-      this.fbWorldRef.on('value', (snap) => {
-        const data = snap.val();
-        if (!data || !data.json) return;
-        if (data.lastWriter === this.clientId) return;
+      const handleStreamEvent = (ev) => {
         try {
-          const serverWorld = JSON.parse(data.json);
-          if (serverWorld && serverWorld.version === 3 && serverWorld.accounts) {
-            Game.mergeServerWorld(serverWorld);
+          const msg = JSON.parse(ev.data);
+          if (msg && msg.path !== undefined) {
+            this.handleFirebaseStreamData(msg.path, msg.data);
           }
-        } catch (e) {
-          console.error('Firebase world parse error:', e);
-        }
-      });
+        } catch (e) {}
+      };
+      es.addEventListener('put', handleStreamEvent);
+      es.addEventListener('patch', handleStreamEvent);
 
-      this.fbPresenceRef.on('value', (snap) => {
-        const raw = snap.val() || {};
-        const now = Date.now();
-        const prevIds = new Set(Object.keys(this.onlinePeers));
-        const nextPeers = {};
-        Object.keys(raw).forEach((cid) => {
-          if (cid === this.clientId) return;
-          const p = raw[cid];
-          if (p && p.username && now - (p.lastSeen || 0) < 15000) {
-            nextPeers[cid] = p;
-            if (!prevIds.has(cid) && typeof Game !== 'undefined') {
-              Game.addLog(`👋 玩家【${p.username}】已從雲端連線進入大場地（領地 #${(p.plotIndex ?? 0) + 1}）！`);
-            }
-          }
-        });
-        this.onlinePeers = nextPeers;
-        if (typeof Game !== 'undefined') {
-          Game.updateOnlinePlayersUI();
-        }
-      });
-
-      this.fbEventsRef.limitToLast(20).on('child_added', (snap) => {
-        const packet = snap.val();
-        if (!packet || packet.senderId === this.clientId) return;
-        if ((packet.timestamp || 0) < this.fbConnectedAt - 3000) return;
-        this.onPacketReceived(packet);
-      });
-
-      if (typeof Game !== 'undefined') {
-        Game.addLog('☁️ 已連線至 Firebase 雲端伺服器！帳號與雙人領地將自動儲存在雲端。');
-      }
-      return true;
+      es.onerror = () => {
+        // SSE 短暫重連時仍由輪詢備援保持同步
+      };
     } catch (e) {
-      console.error('Firebase init failed:', e);
-      this.fbEnabled = false;
-      return false;
+      console.warn('SSE unavailable, using polling fallback', e);
     }
+
+    if (typeof Game !== 'undefined') {
+      Game.addLog('☁️ 已啟用 Firebase 雲端伺服器！帳號與雙人領地將自動儲存在雲端。');
+    }
+    return true;
+  },
+
+  async fbPollBackup(isInitial = false) {
+    if (!this.fbEnabled || !this.fbBaseUrl) return;
+    try {
+      const res = await fetch(`${this.fbBaseUrl}.json`, { cache: 'no-store' });
+      if (!res.ok) {
+        this.updateNetStatusUI('🟠 Firebase 連線異常 (' + res.status + ')');
+        return;
+      }
+      this.updateNetStatusUI('🟢 Firebase 雲端伺服器連線中');
+      const roomData = await res.json();
+      if (!roomData) {
+        if (isInitial) this.sendHeartbeat();
+        return;
+      }
+      if (roomData.world) this.applyFirebaseWorld(roomData.world);
+      if (roomData.presence) this.applyFirebasePresence(roomData.presence);
+      if (roomData.events) this.applyFirebaseEvents(roomData.events);
+      if (isInitial) this.sendHeartbeat();
+    } catch (e) {
+      this.updateNetStatusUI('🟠 Firebase 斷線重連中...');
+    }
+  },
+
+  handleFirebaseStreamData(path, data) {
+    if (path === '/') {
+      if (!data) return;
+      if (data.world) this.applyFirebaseWorld(data.world);
+      if (data.presence) this.applyFirebasePresence(data.presence);
+      if (data.events) this.applyFirebaseEvents(data.events);
+      return;
+    }
+    if (path === '/world') {
+      this.applyFirebaseWorld(data);
+    } else if (path === '/presence') {
+      this.applyFirebasePresence(data || {});
+    } else if (path.startsWith('/presence/')) {
+      this.fbPollBackup(false);
+    } else if (path === '/events') {
+      this.applyFirebaseEvents(data || {});
+    } else if (path.startsWith('/events/')) {
+      const eid = path.slice('/events/'.length);
+      if (data) this.processFirebaseEvent(eid, data);
+    }
+  },
+
+  applyFirebaseWorld(data) {
+    if (!data || !data.json) return;
+    if (data.lastWriter === this.clientId) return;
+    try {
+      const serverWorld = JSON.parse(data.json);
+      if (serverWorld && serverWorld.version === 3 && serverWorld.accounts && typeof Game !== 'undefined') {
+        Game.mergeServerWorld(serverWorld);
+      }
+    } catch (e) {
+      console.error('Firebase world parse error:', e);
+    }
+  },
+
+  applyFirebasePresence(raw) {
+    const now = Date.now();
+    const prevIds = new Set(Object.keys(this.onlinePeers));
+    const nextPeers = {};
+    Object.keys(raw || {}).forEach((cid) => {
+      if (cid === this.clientId) return;
+      const p = raw[cid];
+      if (p && p.username && now - (p.lastSeen || 0) < 15000) {
+        nextPeers[cid] = p;
+        if (!prevIds.has(cid) && typeof Game !== 'undefined') {
+          Game.addLog(`👋 玩家【${p.username}】已從雲端連線進入大場地（領地 #${(p.plotIndex ?? 0) + 1}）！`);
+        }
+      }
+    });
+    this.onlinePeers = nextPeers;
+    if (typeof Game !== 'undefined') {
+      Game.updateOnlinePlayersUI();
+    }
+  },
+
+  applyFirebaseEvents(eventsMap) {
+    if (!eventsMap) return;
+    Object.keys(eventsMap).forEach((eid) => {
+      this.processFirebaseEvent(eid, eventsMap[eid]);
+    });
+  },
+
+  processFirebaseEvent(eid, packet) {
+    if (!eid || !packet || this.fbSeenEventIds.has(eid)) return;
+    this.fbSeenEventIds.add(eid);
+    if (packet.senderId === this.clientId) return;
+    if ((packet.timestamp || 0) < this.fbConnectedAt - 3000) return;
+    this.onPacketReceived(packet);
   },
 
   async pollHttpServerWorld() {
@@ -179,12 +245,16 @@ const NetEngine = {
   },
 
   async saveToHttpServer(worldData) {
-    if (this.fbEnabled && this.fbWorldRef && worldData) {
+    if (this.fbEnabled && this.fbBaseUrl && worldData) {
       try {
-        await this.fbWorldRef.set({
-          json: JSON.stringify(worldData),
-          lastUpdated: worldData.lastUpdated || Date.now(),
-          lastWriter: this.clientId
+        await fetch(`${this.fbBaseUrl}/world.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            json: JSON.stringify(worldData),
+            lastUpdated: worldData.lastUpdated || Date.now(),
+            lastWriter: this.clientId
+          })
         });
       } catch (e) {
         console.error('Firebase save error:', e);
@@ -327,11 +397,15 @@ const NetEngine = {
       payload
     };
 
-    if (this.fbEnabled) {
-      if (type === 'HEARTBEAT' && this.fbMyPresenceRef) {
-        this.fbMyPresenceRef.set({
-          ...payload,
-          lastSeen: Date.now()
+    if (this.fbEnabled && this.fbBaseUrl) {
+      if (type === 'HEARTBEAT') {
+        fetch(`${this.fbBaseUrl}/presence/${this.clientId}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...payload,
+            lastSeen: Date.now()
+          })
         }).catch(() => {});
         return;
       }
@@ -341,9 +415,11 @@ const NetEngine = {
         }
         return;
       }
-      if (this.fbEventsRef) {
-        this.fbEventsRef.push(packet).catch(() => {});
-      }
+      fetch(`${this.fbBaseUrl}/events.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(packet)
+      }).catch(() => {});
     }
 
     if (this.bc) {
