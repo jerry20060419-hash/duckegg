@@ -5,5 +5,5 @@
 // ============================================================================
 
 window.FIREBASE_CONFIG = {
-  databaseURL: "https://duckegg-96e65-default-rtdb.asia-southeast1.firebasedatabase.app"
+  databaseURL: "https://duckegg-98e65-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
