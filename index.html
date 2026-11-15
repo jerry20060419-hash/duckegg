@@ -12,8 +12,9 @@
   <!-- 2D 巨型雙領地與中央 Boss 共鬥畫布 -->
   <canvas id="worldCanvas"></canvas>
 
-  <!-- 頂部狀態與線上伺服器導覽列 -->
-  <header class="top-hud">
+  <div class="ui-overlay">
+    <!-- 頂部狀態與線上伺服器導覽列 -->
+    <header class="top-hud">
     <div class="hud-brand">
       <span class="brand-title">🦆 蛋裡是什麼鴨：雙人連線共鬥版</span>
       <button class="btn-sm btn-outline" onclick="Game.openAuthModal()">
@@ -43,10 +44,12 @@
       <span id="netStatusText" class="net-status-badge">🟡 雙人世界自動連線中...</span>
       <button class="btn-sm btn-outline" onclick="document.getElementById('serverGuideModal').classList.remove('hidden')">❓ 遊玩指南</button>
     </div>
-  </header>
+    </header>
 
-  <!-- 左側：雙人巨型領地導覽、📊即時連線Boss傷害統計榜、全服頻道 -->
-  <aside class="left-sidebar">
+    <!-- 中間左右側欄工作區（自動隨頂部列高度彈性配置，不重疊） -->
+    <div class="middle-workspace">
+      <!-- 左側：雙人巨型領地導覽、📊即時連線Boss傷害統計榜、全服頻道 -->
+      <aside class="left-sidebar">
     <!-- 📊 即時連線 Boss 傷害統計榜 (Boss 戰時自動展開) -->
     <div id="liveBossDamagePanel" class="boss-damage-panel hidden"></div>
 
@@ -69,22 +72,16 @@
         <button class="btn-sm btn-blue" onclick="Game.sendChatMessage()">發送</button>
       </div>
     </div>
-  </aside>
+      </aside>
 
-  <!-- 右側：點擊怪鴨或鴨蛋時的詳細基因、性別、戰力與互動面板 -->
-  <aside id="inspectorPanel" class="inspector-panel hidden">
-    <div id="inspectorContent"></div>
-  </aside>
+      <!-- 右側：點擊怪鴨或鴨蛋時的詳細基因、性別、戰力與互動面板 -->
+      <aside id="inspectorPanel" class="inspector-panel hidden">
+        <div id="inspectorContent"></div>
+      </aside>
+    </div>
 
-  <!-- 頂部彈出：收到在線夥伴的【組隊打Boss邀請】/【跨場相親】/【交易】橫幅 -->
-  <div id="incomingRequestBanner" class="incoming-banner hidden">
-    <span id="incomingRequestText" style="font-size:13px;font-weight:700;"></span>
-    <button class="btn-sm btn-gold" onclick="Game.acceptIncomingInteraction()">✅ 接受並執行</button>
-    <button class="btn-sm btn-danger" onclick="Game.rejectIncomingInteraction()">✕ 婉拒</button>
-  </div>
-
-  <!-- 底部中央快捷操作列 -->
-  <nav class="bottom-dock">
+    <!-- 底部中央快捷操作列 -->
+    <nav class="bottom-dock">
     <button class="btn-md btn-gold" onclick="WorldCanvas.focusOnPlot(Game.getMyPlotIndex(), 0.72)">
       🏠 回我的巨型鴨場
     </button>
@@ -104,8 +101,16 @@
       ⬆️ 容量與突變升級
     </button>
     <button class="btn-sm btn-outline" onclick="WorldCanvas.adjustZoom(0.12)" title="放大視角">➕</button>
-    <button class="btn-sm btn-outline" onclick="WorldCanvas.adjustZoom(-0.12)" title="縮小視角">➖</button>
-  </nav>
+      <button class="btn-sm btn-outline" onclick="WorldCanvas.adjustZoom(-0.12)" title="縮小視角">➖</button>
+    </nav>
+  </div>
+
+  <!-- 彈出：收到在線夥伴的【組隊打Boss邀請】/【跨場相親】/【交易】橫幅 -->
+  <div id="incomingRequestBanner" class="incoming-banner hidden">
+    <span id="incomingRequestText" style="font-size:13px;font-weight:700;"></span>
+    <button class="btn-sm btn-gold" onclick="Game.acceptIncomingInteraction()">✅ 接受並執行</button>
+    <button class="btn-sm btn-danger" onclick="Game.rejectIncomingInteraction()">✕ 婉拒</button>
+  </div>
 
   <!-- Toast 浮動提示容器 -->
   <div id="toastContainer" class="toast-container"></div>
@@ -264,6 +269,9 @@
     </div>
   </div>
 
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <script src="firebase_config.js"></script>
   <script src="duck_data.js"></script>
   <script src="world_canvas.js"></script>
   <script src="multiplayer_server.js"></script>

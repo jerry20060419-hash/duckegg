@@ -1,9 +1,10 @@
 // ============================================================================
 // 《蛋裡是什麼鴨：雙人連線大農場 ＆ Boss 共鬥版》
-// 三合一多人連線與持久化同步核心：
-// 1. 本地伺服器資料庫同步 (HTTP /api/world & /api/save -> data/world_db.json)
-// 2. 同機多視窗即時同步 (BroadcastChannel + localStorage)
-// 3. 跨網房間連線伺服器 (PeerJS WebRTC P2P Server)
+// 多人連線與雲端持久化同步核心：
+// 1. Firebase Realtime Database 雲端即時資料庫（跨網路雙人同步 ＆ 帳號存檔持久化）
+// 2. 本地伺服器資料庫同步 (HTTP /api/world & /api/save -> data/world_db.json)
+// 3. 同機多視窗即時同步 (BroadcastChannel + localStorage)
+// 4. 跨網房間備援連線 (PeerJS WebRTC P2P Server，未設定 Firebase 時使用)
 // ============================================================================
 
 const NetEngine = {
@@ -18,6 +19,13 @@ const NetEngine = {
   onlinePeers: {}, // { clientId: { username, plotIndex, squadPower, lastSeen } }
   hasLocalHttpServer: false,
   reconnectTimer: null,
+  fbEnabled: false,
+  fbDb: null,
+  fbWorldRef: null,
+  fbPresenceRef: null,
+  fbMyPresenceRef: null,
+  fbEventsRef: null,
+  fbConnectedAt: 0,
 
   async init() {
     if ('BroadcastChannel' in window) {
@@ -27,6 +35,18 @@ const NetEngine = {
           this.onPacketReceived(ev.data);
         }
       };
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const customRoom = params.get('room');
+    this.roomCode = (customRoom || this.FIXED_ROOM_ID).trim().toUpperCase().replace(/[.#$\[\]]/g, '_');
+
+    // 優先啟用 Firebase 雲端即時資料庫（穩定跨網同步 + 伺服器端儲存帳號與領地）
+    if (this.initFirebase()) {
+      setInterval(() => {
+        this.sendHeartbeat();
+      }, 3000);
+      return;
     }
 
     if (window.location.protocol.startsWith('http')) {
@@ -45,11 +65,7 @@ const NetEngine = {
       }
     }
 
-    const params = new URLSearchParams(window.location.search);
-    const customRoom = params.get('room');
-    this.roomCode = (customRoom || this.FIXED_ROOM_ID).trim().toUpperCase();
-
-    // 一打開網頁即自動連入固定雙人房間（免輸入房號）
+    // 未設定 Firebase 時，退回 PeerJS 自動連線
     setTimeout(() => {
       this.autoConnectFixedRoom(this.roomCode);
     }, 350);
@@ -66,6 +82,90 @@ const NetEngine = {
     }, 2200);
   },
 
+  initFirebase() {
+    const cfg = window.FIREBASE_CONFIG;
+    if (typeof firebase === 'undefined' || !cfg || !cfg.databaseURL || !cfg.databaseURL.trim()) {
+      return false;
+    }
+    try {
+      if (!firebase.apps || firebase.apps.length === 0) {
+        firebase.initializeApp(cfg);
+      }
+      this.fbDb = firebase.database();
+      this.fbEnabled = true;
+      this.fbConnectedAt = Date.now();
+
+      const base = `rooms/${this.roomCode}`;
+      this.fbWorldRef = this.fbDb.ref(`${base}/world`);
+      this.fbPresenceRef = this.fbDb.ref(`${base}/presence`);
+      this.fbMyPresenceRef = this.fbPresenceRef.child(this.clientId);
+      this.fbEventsRef = this.fbDb.ref(`${base}/events`);
+
+      this.updateNetStatusUI('🟡 正在連線至 Firebase 雲端伺服器...');
+
+      this.fbDb.ref('.info/connected').on('value', (snap) => {
+        if (snap.val() === true) {
+          this.fbMyPresenceRef.onDisconnect().remove();
+          this.sendHeartbeat();
+          this.updateNetStatusUI('🟢 Firebase 雲端伺服器連線中');
+        } else {
+          this.updateNetStatusUI('🟠 Firebase 斷線重連中...');
+        }
+      });
+
+      this.fbWorldRef.on('value', (snap) => {
+        const data = snap.val();
+        if (!data || !data.json) return;
+        if (data.lastWriter === this.clientId) return;
+        try {
+          const serverWorld = JSON.parse(data.json);
+          if (serverWorld && serverWorld.version === 3 && serverWorld.accounts) {
+            Game.mergeServerWorld(serverWorld);
+          }
+        } catch (e) {
+          console.error('Firebase world parse error:', e);
+        }
+      });
+
+      this.fbPresenceRef.on('value', (snap) => {
+        const raw = snap.val() || {};
+        const now = Date.now();
+        const prevIds = new Set(Object.keys(this.onlinePeers));
+        const nextPeers = {};
+        Object.keys(raw).forEach((cid) => {
+          if (cid === this.clientId) return;
+          const p = raw[cid];
+          if (p && p.username && now - (p.lastSeen || 0) < 15000) {
+            nextPeers[cid] = p;
+            if (!prevIds.has(cid) && typeof Game !== 'undefined') {
+              Game.addLog(`👋 玩家【${p.username}】已從雲端連線進入大場地（領地 #${(p.plotIndex ?? 0) + 1}）！`);
+            }
+          }
+        });
+        this.onlinePeers = nextPeers;
+        if (typeof Game !== 'undefined') {
+          Game.updateOnlinePlayersUI();
+        }
+      });
+
+      this.fbEventsRef.limitToLast(20).on('child_added', (snap) => {
+        const packet = snap.val();
+        if (!packet || packet.senderId === this.clientId) return;
+        if ((packet.timestamp || 0) < this.fbConnectedAt - 3000) return;
+        this.onPacketReceived(packet);
+      });
+
+      if (typeof Game !== 'undefined') {
+        Game.addLog('☁️ 已連線至 Firebase 雲端伺服器！帳號與雙人領地將自動儲存在雲端。');
+      }
+      return true;
+    } catch (e) {
+      console.error('Firebase init failed:', e);
+      this.fbEnabled = false;
+      return false;
+    }
+  },
+
   async pollHttpServerWorld() {
     try {
       const res = await fetch('/api/world', { cache: 'no-store' });
@@ -79,6 +179,17 @@ const NetEngine = {
   },
 
   async saveToHttpServer(worldData) {
+    if (this.fbEnabled && this.fbWorldRef && worldData) {
+      try {
+        await this.fbWorldRef.set({
+          json: JSON.stringify(worldData),
+          lastUpdated: worldData.lastUpdated || Date.now(),
+          lastWriter: this.clientId
+        });
+      } catch (e) {
+        console.error('Firebase save error:', e);
+      }
+    }
     if (!this.hasLocalHttpServer) return;
     try {
       await fetch('/api/save', {
@@ -215,6 +326,25 @@ const NetEngine = {
       timestamp: Date.now(),
       payload
     };
+
+    if (this.fbEnabled) {
+      if (type === 'HEARTBEAT' && this.fbMyPresenceRef) {
+        this.fbMyPresenceRef.set({
+          ...payload,
+          lastSeen: Date.now()
+        }).catch(() => {});
+        return;
+      }
+      if (type === 'WORLD_SYNC') {
+        if (payload && payload.world) {
+          this.saveToHttpServer(payload.world);
+        }
+        return;
+      }
+      if (this.fbEventsRef) {
+        this.fbEventsRef.push(packet).catch(() => {});
+      }
+    }
 
     if (this.bc) {
       this.bc.postMessage(packet);
