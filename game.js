@@ -1902,9 +1902,9 @@ const Game = {
       sac.epicPlus = (sac.epicPlus || 0) + 1;
       tags.push('🔮紫鴨以上+1');
     }
-    if (['legendary', 'cursed'].includes(info.rarityKey) || (info.isFullSet && ['rare', 'epic', 'legendary', 'cursed'].includes(info.rarityKey))) {
+    if (['legendary', 'cursed'].includes(info.rarityKey) || (info.isFullSet && ['epic', 'legendary', 'cursed'].includes(info.rarityKey))) {
       sac.legendaryOrSet = (sac.legendaryOrSet || 0) + 1;
-      tags.push('👑金/稀套+1');
+      tags.push('👑金/高套+1');
     }
     if (info.rarityKey === 'cursed' || (info.isFullSet && ['epic', 'legendary', 'cursed'].includes(info.rarityKey))) {
       sac.cursedOrHighSet = (sac.cursedOrHighSet || 0) + 1;
