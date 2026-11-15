@@ -687,18 +687,9 @@ const Game = {
     const plot = this.getMyPlot();
     if (!acc || !plot) return;
 
-    const validDuckIds = new Set((plot.ducks || []).map(d => d.id));
-    acc.squadIds = (acc.squadIds || []).filter(id => validDuckIds.has(id)).slice(0, MAX_SQUAD_SIZE);
-
-    if (acc.squadIds.length < MAX_SQUAD_SIZE && plot.ducks.length > 0) {
-      const sorted = [...plot.ducks].sort((a, b) => evaluateDuckInfo(b).combatPower - evaluateDuckInfo(a).combatPower);
-      for (const d of sorted) {
-        if (acc.squadIds.length >= MAX_SQUAD_SIZE) break;
-        if (!acc.squadIds.includes(d.id)) {
-          acc.squadIds.push(d.id);
-        }
-      }
-    }
+    // 戰鬥時自動派出戰力最強的前 3 隻怪鴨（免手動調整）
+    const sorted = [...(plot.ducks || [])].sort((a, b) => evaluateDuckInfo(b).combatPower - evaluateDuckInfo(a).combatPower);
+    acc.squadIds = sorted.slice(0, MAX_SQUAD_SIZE).map(d => d.id);
   },
 
   getMySquadDucks() {
@@ -1312,7 +1303,7 @@ const Game = {
     const squadPower = this.getMySquadTotalPower();
 
     document.getElementById('mySquadPowerBadge').textContent =
-      `⚔️ 我的 3 隻出戰小隊戰力：${squadPower.toLocaleString()} (已選 ${squadDucks.length}/${MAX_SQUAD_SIZE} 隻｜雙人聯合共 6 隻戰鴨圍攻)`;
+      `⚔️ 自動出戰最強 3 鴨總戰力：${squadPower.toLocaleString()} (${squadDucks.length}/${MAX_SQUAD_SIZE} 隻｜免手動調整)`;
 
     const sortedDucks = [...plot.ducks].sort((a, b) => evaluateDuckInfo(b).combatPower - evaluateDuckInfo(a).combatPower);
     const listEl = document.getElementById('squadDuckPickerList');
@@ -1321,10 +1312,10 @@ const Game = {
       const inSquad = (acc.squadIds || []).includes(d.id);
       const gSym = d.gender === 'M' ? '♂' : '♀';
       return `
-        <div class="duck-pick-item ${inSquad ? 'selected' : ''}" onclick="Game.toggleDuckInSquad('${d.id}')">
+        <div class="duck-pick-item ${inSquad ? 'selected' : ''}" style="cursor:default;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <span class="dp-title" style="color:${info.rarity.color}">
-              ${inSquad ? '✅ [出戰中]' : '⬜'} [${info.rarity.name}] ${gSym}${d.name}
+              ${inSquad ? '✅ [自動出戰]' : '⬜'} [${info.rarity.name}] ${gSym}${d.name}
             </span>
             <span style="font-weight:900;color:#fde047;">⚔️ 戰力 ${info.combatPower}</span>
           </div>

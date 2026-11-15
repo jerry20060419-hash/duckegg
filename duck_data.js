@@ -256,6 +256,139 @@ const DUCK_SETS = [
     head: { id: 'h_void', name: '深淵百眼魔神頭', power: 1480, desc: '脖子極度拉長、頭上睜開數顆發射毀滅死光的深淵之眼。' },
     wing: { id: 'w_void', name: '虛空裂隙死神鐮', power: 1450, desc: '由空間裂縫與駭人骨鐮構成的詛咒雙翼。' },
     body: { id: 'b_void', name: '微型黑洞漩渦身', power: 1420, desc: '身體中心就是一個不斷旋轉吞噬光線的超重力黑洞。' }
+  },
+  // --- 新增 12 種全新鴨子套裝 ---
+  {
+    setId: 'boba',
+    setName: '珍珠奶茶・Q彈手搖鴨',
+    rarity: 'common',
+    skillName: '波霸連環彈射',
+    projColor: '#d97706',
+    setDesc: '來自手搖飲聖地的國民美食鴨，全糖去冰喝一口戰力倍增！',
+    head: { id: 'h_boba', name: '吸管黑糖奶蓋頭', power: 48, desc: '頭頂插著粗吸管，還覆蓋著一層香濃起司奶蓋。' },
+    wing: { id: 'w_boba', name: '搖搖杯冰塊手', power: 44, desc: '揮動時會發出清脆的冰塊搖晃聲。' },
+    body: { id: 'b_boba', name: '滿杯黑糖珍珠身', power: 42, desc: '透明的身體裡裝滿了亮晶晶的Q彈黑糖波霸。' }
+  },
+  {
+    setId: 'box',
+    setName: '宅急便・紙箱快遞鴨',
+    rarity: 'common',
+    skillName: '膠帶打包衝撞',
+    projColor: '#b45309',
+    setDesc: '不管多遠都能準時送達（或把敵人裝箱退貨）的勤勞快遞員。',
+    head: { id: 'h_box', name: '易碎品貼紙鴨頭', power: 50, desc: '額頭貼著「小心輕放・易碎」的紅色警戒貼紙。' },
+    wing: { id: 'w_box', name: '封箱膠帶紙翼', power: 46, desc: '用牛皮紙與強力封箱膠帶折出來的硬派翅膀。' },
+    body: { id: 'b_box', name: '瓦楞紙箱宅配身', power: 45, desc: '完美契合鴨身的厚實瓦楞紙箱，防撞係數極高。' }
+  },
+  {
+    setId: 'diver',
+    setName: '深海潛水・蛙鏡氣泡鴨',
+    rarity: 'rare',
+    skillName: '高壓水柱噴射',
+    projColor: '#0284c7',
+    setDesc: '裝備齊全的深海探索者，能在水底憋氣順便抓魚吃。',
+    head: { id: 'h_diver', name: '潛水蛙鏡呼吸管頭', power: 130, desc: '戴著防霧大蛙鏡與鮮橘色呼吸管，隨時準備下潛。' },
+    wing: { id: 'w_diver', name: '橡膠蛙鞋推進翼', power: 122, desc: '流線型蛙鞋拍動起來水花四濺，推進力十足。' },
+    body: { id: 'b_diver', name: '黃藍潛水氧氣瓶身', power: 118, desc: '穿著緊身潛水衣並背著高壓壓縮氧氣鋼瓶。' }
+  },
+  {
+    setId: 'bee',
+    setName: '嗡嗡採蜜・條紋蜜蜂鴨',
+    rarity: 'rare',
+    skillName: '蜂針齊射蜂暴',
+    projColor: '#eab308',
+    setDesc: '每天勤奮採集花蜜的偽裝蜜蜂，雖然是鴨子但非常敬業。',
+    head: { id: 'h_bee', name: '觸角毛絨蜜蜂頭', power: 135, desc: '長出兩根會隨著心情晃動的可愛黑色觸角。' },
+    wing: { id: 'w_bee', name: '高頻透明蜂翼', power: 128, desc: '每秒振翅上百次的半透明薄翼，飛行時嗡嗡作響。' },
+    body: { id: 'b_bee', name: '黃黑條紋蜜壺身', power: 124, desc: '圓滾滾的黃黑相間條紋肚皮，裡面裝滿甜甜蜂蜜。' }
+  },
+  {
+    setId: 'chef',
+    setName: '五星主廚・中華一番鴨',
+    rarity: 'rare',
+    skillName: '爆炒平底鍋連擊',
+    projColor: '#f97316',
+    setDesc: '對火候與調味有極致追求的料理大師，絕對不允許食材被浪費！',
+    head: { id: 'h_chef', name: '高聳主廚白帽頭', power: 138, desc: '頂著象徵三星主廚榮譽的高聳潔白摺疊廚師帽。' },
+    wing: { id: 'w_chef', name: '不沾平底鍋翼', power: 132, desc: '單手就能輕鬆甩鍋翻炒，兼顧防禦與物理打擊。' },
+    body: { id: 'b_chef', name: '雙排扣主廚圍裙身', power: 126, desc: '整潔俐落的雙排扣主廚袍，繫著紅色領巾。' }
+  },
+  {
+    setId: 'vampire',
+    setName: '暗夜伯爵・吸血蝙蝠鴨',
+    rarity: 'epic',
+    skillName: '猩紅蝠群吸魂',
+    projColor: '#dc2626',
+    setDesc: '只在月圓之夜現身的貴族鴨，其實喝的是番茄汁。',
+    head: { id: 'h_vampire', name: '蒼白獠牙禮帽頭', power: 300, desc: '高貴的黑色高禮帽搭配一對可愛卻銳利的吸血獠牙。' },
+    wing: { id: 'w_vampire', name: '暗黑蝙蝠披風翼', power: 290, desc: '內襯血紅的漆黑蝙蝠膜翼，展開時散發優雅殺氣。' },
+    body: { id: 'b_vampire', name: '燕尾服紅領結身', power: 280, desc: '剪裁合身的哥德式貴族燕尾服，胸前別著紅寶石胸針。' }
+  },
+  {
+    setId: 'astro',
+    setName: '登月先鋒・星際宇航鴨',
+    rarity: 'epic',
+    skillName: '等離子太空雷射',
+    projColor: '#38bdf8',
+    setDesc: '「這是我的一小步，卻是鴨類的一大步！」無畏探索未知宇宙。',
+    head: { id: 'h_astro', name: '金色反光太空頭盔', power: 310, desc: '鍍金抗輻射面罩能抵擋宇宙射線與刺眼恆星光芒。' },
+    wing: { id: 'w_astro', name: '火箭推進噴射翼', power: 295, desc: '搭載雙核心小型離子推進器，無重力下也能高速機動。' },
+    body: { id: 'b_astro', name: 'NASA級加壓太空衣', power: 288, desc: '多層防護的純白太空服，胸前裝有生命維持儀表板。' }
+  },
+  {
+    setId: 'rockstar',
+    setName: '重金屬・電音搖滾鴨',
+    rarity: 'epic',
+    skillName: '百萬分貝音浪轟炸',
+    projColor: '#ec4899',
+    setDesc: '站在舞台聚光燈中央的超級巨星，用狂野吉他聲震碎全場！',
+    head: { id: 'h_rockstar', name: '龐克刺蝟墨鏡頭', power: 315, desc: '一頭霓虹粉刺蝟龐克頭搭配超酷的星形墨鏡。' },
+    wing: { id: 'w_rockstar', name: '閃電電吉他雙翼', power: 302, desc: '形如閃電的電吉他翅膀，隨時能刷出強力和弦。' },
+    body: { id: 'b_rockstar', name: '鉚釘皮衣搖滾身', power: 292, desc: '佈滿銀色金屬鉚釘的黑色皮夾克，叛逆感拉滿。' }
+  },
+  {
+    setId: 'thor',
+    setName: '阿斯嘉特・雷神索爾鴨',
+    rarity: 'legendary',
+    skillName: '雷霆萬鈞・妙爾尼爾',
+    projColor: '#38bdf8',
+    setDesc: '唯有內心純潔（且愛吃麵包）的鴨子，才能舉起的雷霆神力！',
+    head: { id: 'h_thor', name: '銀翼雷神戰盔頭', power: 675, desc: '雙側鑲嵌銀色羽翼的神域戰盔，雙眼閃爍著雷電藍光。' },
+    wing: { id: 'w_thor', name: '雷神之錘風暴翼', power: 660, desc: '揮動時伴隨轟隆雷鳴與熾熱電弧的戰神之翼。' },
+    body: { id: 'b_thor', name: '神域電弧戰甲身', power: 645, desc: '阿斯嘉特秘銀打造的銀藍護胸鎧甲，披著猩紅戰袍。' }
+  },
+  {
+    setId: 'fox',
+    setName: '稻荷神使・九尾妖狐鴨',
+    rarity: 'legendary',
+    skillName: '狐火繚亂・九尾天翔',
+    projColor: '#fb7185',
+    setDesc: '居於深山神社的千年靈狐與神鴨融合，能操縱神聖狐火。',
+    head: { id: 'h_fox', name: '紅白狐耳妖紋頭', power: 685, desc: '頂著毛茸茸的紅白狐耳與額頭神紋，氣質神秘優雅。' },
+    wing: { id: 'w_fox', name: '蓬鬆靈火九尾翼', power: 668, desc: '如九條妖狐尾巴般綻放的純白羽翼，尾端燃燒著粉紅狐火。' },
+    body: { id: 'b_fox', name: '朱紅神使巫女服', power: 652, desc: '織有金色神社結繩的華麗紅白和風服飾。' }
+  },
+  {
+    setId: 'reaper',
+    setName: '冥界引渡・死神收割鴨',
+    rarity: 'cursed',
+    skillName: '靈魂收割・冥府裂斬',
+    projColor: '#2dd4bf',
+    setDesc: '掌管靈魂歸宿的冥府使者，凡被牠盯上的 Boss 都逃不過審判。',
+    head: { id: 'h_reaper', name: '兜帽骷髏幽火頭', power: 1420, desc: '深邃黑色兜帽下隱約可見燃燒著冥界青火的雙瞳。' },
+    wing: { id: 'w_reaper', name: '冥界巨鐮骸骨翼', power: 1395, desc: '由蒼白骸骨與巨大死神鐮刀組成的索命雙翼。' },
+    body: { id: 'b_reaper', name: '破敗幽魂黑斗篷', power: 1370, desc: '纏繞著冥界鎖鏈與幽綠鬼火的殘破死神長袍。' }
+  },
+  {
+    setId: 'titan',
+    setName: '末日終結・毀滅泰坦機甲鴨',
+    rarity: 'cursed',
+    skillName: '軌道核融・終焉光砲',
+    projColor: '#f97316',
+    setDesc: '集結禁忌科技打造的滅世兵器，體內核融合爐隨時處於臨界狀態。',
+    head: { id: 'h_titan', name: '雙重裝甲紅眼核心頭', power: 1460, desc: '厚重黑金泰坦裝甲頭盔，中央掃描器閃耀毀滅紅光。' },
+    wing: { id: 'w_titan', name: '泰坦浮游重砲翼', power: 1435, desc: '裝備六門高能電漿浮游砲的機械鋼鐵巨翼。' },
+    body: { id: 'b_titan', name: '過載核反應爐機甲身', power: 1410, desc: '胸口鑲嵌高溫熔岩核反應爐的黑色重裝泰坦機體。' }
   }
 ];
 

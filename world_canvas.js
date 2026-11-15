@@ -451,7 +451,9 @@ const WorldCanvas = {
 
   loop(ts) {
     this.update(ts);
-    this.render(ts);
+    if (!document.hidden) {
+      this.render(ts);
+    }
     requestAnimationFrame((nextTs) => this.loop(nextTs));
   },
 
@@ -877,12 +879,24 @@ const WorldCanvas = {
   drawAllPlots(ctx, ts) {
     if (typeof Game === 'undefined' || !Game.ready) return;
     const plots = Game.getAllPlots();
+    const halfW = (this.width / 2) / this.camera.zoom + 120;
+    const halfH = (this.height / 2) / this.camera.zoom + 120;
+    const minX = this.camera.x - halfW;
+    const maxX = this.camera.x + halfW;
+    const minY = this.camera.y - halfH;
+    const maxY = this.camera.y + halfH;
 
     this.plotDefinitions.forEach((def, idx) => {
       const plotData = plots[idx];
       const hasOwner = plotData && plotData.owner;
       // 只顯示前 2 個主領地（雙人遊玩專用）；若第 3、4 領地有真實玩家登入才顯示
       if (idx >= 2 && !hasOwner) return;
+
+      const hw = this.PLOT_W / 2;
+      const hh = this.PLOT_H / 2;
+      if (def.x + hw < minX || def.x - hw > maxX || def.y + hh < minY || def.y - hh > maxY) {
+        return;
+      }
 
       const isMine = Game.isMyPlot(idx);
       const isOnline = hasOwner && Game.isPlayerOnline(plotData.owner);
@@ -1436,6 +1450,121 @@ const WorldCanvas = {
         ctx.arc(0, 8, 18, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
         break;
+      case 'b_boba':
+        ctx.fillStyle = '#fde68a';
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = 2;
+        roundRect(ctx, -18, -4, 36, 26, 8);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#292524';
+        for (let px = -10; px <= 10; px += 7) {
+          ctx.beginPath(); ctx.arc(px, 15, 3, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.beginPath(); ctx.arc(-5, 10, 2.8, 0, Math.PI * 2); ctx.arc(6, 9, 2.8, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'b_box':
+        ctx.fillStyle = '#d97706';
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 2;
+        roundRect(ctx, -20, -4, 40, 25, 3);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#fef3c7';
+        ctx.fillRect(-3, -4, 6, 25);
+        break;
+      case 'b_diver':
+        ctx.fillStyle = '#0284c7';
+        ctx.strokeStyle = '#bae6fd';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 8, 22, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#facc15';
+        roundRect(ctx, -17, 1, 8, 14, 3);
+        ctx.fill();
+        break;
+      case 'b_bee':
+        ctx.fillStyle = '#facc15';
+        ctx.strokeStyle = '#713f12';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 8, 21, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#1c1917';
+        ctx.fillRect(-14, 1, 28, 4);
+        ctx.fillRect(-13, 10, 26, 4);
+        break;
+      case 'b_chef':
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 8, 22, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-10, -2, 20, 4);
+        ctx.fillStyle = '#334155';
+        ctx.beginPath(); ctx.arc(-4, 7, 1.8, 0, Math.PI * 2); ctx.arc(4, 7, 1.8, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'b_vampire':
+        ctx.fillStyle = '#18181b';
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 8, 22, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.moveTo(-6, -2); ctx.lineTo(6, -2); ctx.lineTo(0, 11); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#dc2626';
+        ctx.beginPath(); ctx.arc(0, 2, 3, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'b_astro':
+        ctx.fillStyle = '#f8fafc';
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 2;
+        roundRect(ctx, -21, -3, 42, 25, 10);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#0284c7';
+        ctx.fillRect(-7, 4, 14, 8);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-4, 6, 4, 4);
+        break;
+      case 'b_rockstar':
+        ctx.fillStyle = '#18181b';
+        ctx.strokeStyle = '#ec4899';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 8, 22, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#e2e8f0';
+        for (let sx = -10; sx <= 10; sx += 5) {
+          ctx.beginPath(); ctx.arc(sx, 6, 1.8, 0, Math.PI * 2); ctx.fill();
+        }
+        break;
+      case 'b_thor':
+        ctx.fillStyle = '#1e3a8a';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.ellipse(0, 8, 22, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#cbd5e1';
+        ctx.beginPath(); ctx.arc(-7, 7, 4, 0, Math.PI * 2); ctx.arc(7, 7, 4, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'b_fox':
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#fb7185';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 8, 22, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#e11d48';
+        ctx.fillRect(-14, 11, 28, 6);
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath(); ctx.arc(0, 3, 3.5, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'b_reaper':
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#2dd4bf';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(-22, 18); ctx.quadraticCurveTo(0, -10, 22, 18); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        break;
+      case 'b_titan':
+        ctx.fillStyle = '#1c1917';
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 2.5;
+        roundRect(ctx, -23, -5, 46, 27, 6);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#fb923c';
+        ctx.beginPath(); ctx.arc(0, 8, 6, 0, Math.PI * 2); ctx.fill();
+        break;
       default:
         ctx.fillStyle = '#fde047';
         ctx.strokeStyle = '#ca8a04';
@@ -1465,6 +1594,13 @@ const WorldCanvas = {
     if (headId === 'h_dragon') headColor = '#dc2626';
     if (headId === 'h_cthulhu') headColor = '#581c87';
     if (headId === 'h_void') headColor = '#0f172a';
+    if (headId === 'h_boba') headColor = '#fef3c7';
+    if (headId === 'h_box') headColor = '#d97706';
+    if (headId === 'h_vampire') headColor = '#e2e8f0';
+    if (headId === 'h_astro') headColor = '#f8fafc';
+    if (headId === 'h_fox') headColor = '#fff1f2';
+    if (headId === 'h_reaper') headColor = '#1e293b';
+    if (headId === 'h_titan') headColor = '#292524';
 
     if (headId === 'h_retro') {
       ctx.fillStyle = '#475569';
@@ -1612,6 +1748,102 @@ const WorldCanvas = {
         ctx.moveTo(-4, -12); ctx.lineTo(-12, -26); ctx.lineTo(2, -14);
         ctx.fill();
         break;
+      case 'h_boba':
+        ctx.fillStyle = '#fffbeb';
+        ctx.beginPath(); ctx.ellipse(0, -10, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#18181b';
+        ctx.save(); ctx.rotate(0.25); ctx.fillRect(1, -26, 4, 16); ctx.restore();
+        break;
+      case 'h_box':
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-5, -13, 10, 5);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-3, -11, 6, 1.5);
+        break;
+      case 'h_diver':
+        ctx.fillStyle = '#38bdf8';
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 2;
+        roundRect(ctx, -2, -7, 15, 8, 3);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#f97316';
+        ctx.fillRect(-10, -21, 3, 18);
+        break;
+      case 'h_bee':
+        ctx.strokeStyle = '#1c1917';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-3, -12); ctx.quadraticCurveTo(-8, -22, -12, -21);
+        ctx.moveTo(3, -12); ctx.quadraticCurveTo(6, -22, 10, -21);
+        ctx.stroke();
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath(); ctx.arc(-12, -21, 2.5, 0, Math.PI * 2); ctx.arc(10, -21, 2.5, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'h_chef':
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, -10, -24, 20, 12, 4);
+        ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(-6, -24, 6, 0, Math.PI * 2); ctx.arc(0, -26, 7, 0, Math.PI * 2); ctx.arc(6, -24, 6, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'h_vampire':
+        ctx.fillStyle = '#18181b';
+        ctx.fillRect(-13, -14, 26, 3);
+        ctx.fillRect(-9, -27, 18, 13);
+        ctx.fillStyle = '#dc2626';
+        ctx.fillRect(-9, -17, 18, 3);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.moveTo(8, 3); ctx.lineTo(10, 8); ctx.lineTo(12, 3); ctx.fill();
+        break;
+      case 'h_astro':
+        ctx.fillStyle = 'rgba(250, 204, 21, 0.78)';
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(1, -1, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        break;
+      case 'h_rockstar':
+        ctx.fillStyle = '#ec4899';
+        ctx.beginPath();
+        ctx.moveTo(-8, -11); ctx.lineTo(-10, -24); ctx.lineTo(-2, -14);
+        ctx.lineTo(2, -26); ctx.lineTo(6, -13); ctx.lineTo(12, -22); ctx.lineTo(10, -10);
+        ctx.fill();
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, -6, 13, 5);
+        break;
+      case 'h_thor':
+        ctx.fillStyle = '#cbd5e1';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(0, -6, 12, Math.PI, 0); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.moveTo(-11, -9); ctx.lineTo(-20, -21); ctx.lineTo(-7, -14); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(10, -9); ctx.lineTo(18, -20); ctx.lineTo(6, -14); ctx.fill();
+        break;
+      case 'h_fox':
+        ctx.fillStyle = '#e11d48';
+        ctx.beginPath(); ctx.moveTo(-10, -10); ctx.lineTo(-14, -24); ctx.lineTo(-2, -13); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(3, -13); ctx.lineTo(11, -24); ctx.lineTo(10, -10); ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.moveTo(-9, -12); ctx.lineTo(-12, -20); ctx.lineTo(-5, -13); ctx.fill();
+        break;
+      case 'h_reaper':
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#2dd4bf';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(0, -3, 15, Math.PI * 0.85, Math.PI * 0.15); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#2dd4bf';
+        ctx.beginPath(); ctx.arc(5, -3, 2.5, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'h_titan':
+        ctx.fillStyle = '#44403c';
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 2;
+        roundRect(ctx, -12, -14, 24, 15, 3);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(0, -8, 11, 4);
+        break;
     }
 
     ctx.restore();
@@ -1712,6 +1944,107 @@ const WorldCanvas = {
         ctx.beginPath();
         ctx.ellipse(-4, 0, 15, 7, -0.3, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
+        break;
+      case 'w_boba':
+        ctx.fillStyle = '#fde68a';
+        ctx.strokeStyle = '#92400e';
+        ctx.lineWidth = 1.8;
+        roundRect(ctx, -10, -4, 20, 11, 4);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(-5, -1, 5, 5);
+        ctx.fillRect(2, 0, 4, 4);
+        break;
+      case 'w_box':
+        ctx.fillStyle = '#b45309';
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 1.8;
+        roundRect(ctx, -11, -3, 22, 10, 2);
+        ctx.fill(); ctx.stroke();
+        break;
+      case 'w_diver':
+        ctx.fillStyle = '#facc15';
+        ctx.strokeStyle = '#0369a1';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(4, 0); ctx.lineTo(-16, -6); ctx.lineTo(-16, 8); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        break;
+      case 'w_bee':
+        ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(-4, -3, 13, 6, -0.45, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        break;
+      case 'w_chef':
+        ctx.fillStyle = '#334155';
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 1.8;
+        ctx.fillRect(0, -1, 12, 4);
+        ctx.beginPath(); ctx.arc(-6, 1, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        break;
+      case 'w_vampire':
+        ctx.fillStyle = '#18181b';
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(4, -2); ctx.lineTo(-18, -10); ctx.lineTo(-12, 8); ctx.lineTo(-4, 4); ctx.lineTo(2, 8); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        break;
+      case 'w_astro':
+        ctx.fillStyle = '#e2e8f0';
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1.8;
+        roundRect(ctx, -14, -5, 18, 12, 3);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath(); ctx.moveTo(-14, -2); ctx.lineTo(-24, 1); ctx.lineTo(-14, 4); ctx.fill();
+        break;
+      case 'w_rockstar':
+        ctx.fillStyle = '#ec4899';
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(6, -3); ctx.lineTo(-12, -10); ctx.lineTo(-6, 0); ctx.lineTo(-16, 8); ctx.lineTo(6, 4); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        break;
+      case 'w_thor':
+        ctx.fillStyle = '#64748b';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        roundRect(ctx, -16, -6, 16, 11, 2);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(0, -2, 10, 4);
+        break;
+      case 'w_fox':
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#fb7185';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.ellipse(-6, -4, 15, 6, -0.4, 0, Math.PI * 2);
+        ctx.ellipse(-8, 3, 14, 5, 0.2, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        break;
+      case 'w_reaper':
+        ctx.fillStyle = '#e2e8f0';
+        ctx.strokeStyle = '#2dd4bf';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(4, 2); ctx.lineTo(-14, -12); ctx.quadraticCurveTo(-24, -4, -18, 10); ctx.lineTo(-12, -4); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        break;
+      case 'w_titan':
+        ctx.fillStyle = '#44403c';
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 2;
+        roundRect(ctx, -18, -8, 20, 14, 3);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(-15, -4, 8, 3);
+        ctx.fillRect(-15, 1, 8, 3);
         break;
       default:
         ctx.fillStyle = '#facc15';

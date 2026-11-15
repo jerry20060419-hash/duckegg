@@ -25,6 +25,8 @@ const NetEngine = {
   fbSeenEventIds: new Set(),
   fbConnectedAt: 0,
   fbLastWorldUpdated: 0,
+  fbSavingWorld: false,
+  fbPendingWorldData: null,
 
   async init() {
     if ('BroadcastChannel' in window) {
@@ -143,21 +145,42 @@ const NetEngine = {
   async fbPollBackup(isInitial = false) {
     if (!this.fbEnabled || !this.fbBaseUrl) return;
     try {
-      const res = await fetch(`${this.fbBaseUrl}.json`, { cache: 'no-store' });
-      if (!res.ok) {
-        this.updateNetStatusUI('🟠 Firebase 連線異常 (' + res.status + ')');
+      if (isInitial) {
+        const [wRes, pRes] = await Promise.all([
+          fetch(`${this.fbBaseUrl}/world.json`, { cache: 'no-store' }),
+          fetch(`${this.fbBaseUrl}/presence.json`, { cache: 'no-store' })
+        ]);
+        if (!wRes.ok) {
+          this.updateNetStatusUI('🟠 Firebase 連線異常 (' + wRes.status + ')');
+          return;
+        }
+        this.updateNetStatusUI('🟢 Firebase 雲端伺服器連線中');
+        const [wData, pData] = await Promise.all([wRes.json(), pRes.ok ? pRes.json() : null]);
+        if (wData) this.applyFirebaseWorld(wData);
+        if (pData) this.applyFirebasePresence(pData);
+        this.sendHeartbeat();
+        return;
+      }
+
+      // 輕量輪詢：先只抓 15 bytes 的 lastUpdated 與 presence，有變動才下載 world.json
+      const [tsRes, pRes] = await Promise.all([
+        fetch(`${this.fbBaseUrl}/world/lastUpdated.json`, { cache: 'no-store' }),
+        fetch(`${this.fbBaseUrl}/presence.json`, { cache: 'no-store' })
+      ]);
+      if (!tsRes.ok) {
+        this.updateNetStatusUI('🟠 Firebase 連線異常 (' + tsRes.status + ')');
         return;
       }
       this.updateNetStatusUI('🟢 Firebase 雲端伺服器連線中');
-      const roomData = await res.json();
-      if (!roomData) {
-        if (isInitial) this.sendHeartbeat();
-        return;
+      const [remoteTs, pData] = await Promise.all([tsRes.json(), pRes.ok ? pRes.json() : null]);
+      if (pData) this.applyFirebasePresence(pData);
+      if (remoteTs && remoteTs !== this.fbLastWorldUpdated) {
+        const wRes = await fetch(`${this.fbBaseUrl}/world.json`, { cache: 'no-store' });
+        if (wRes.ok) {
+          const wData = await wRes.json();
+          if (wData) this.applyFirebaseWorld(wData);
+        }
       }
-      if (roomData.world) this.applyFirebaseWorld(roomData.world);
-      if (roomData.presence) this.applyFirebasePresence(roomData.presence);
-      if (roomData.events) this.applyFirebaseEvents(roomData.events);
-      if (isInitial) this.sendHeartbeat();
     } catch (e) {
       this.updateNetStatusUI('🟠 Firebase 斷線重連中...');
     }
@@ -176,7 +199,18 @@ const NetEngine = {
     } else if (path === '/presence') {
       this.applyFirebasePresence(data || {});
     } else if (path.startsWith('/presence/')) {
-      this.fbPollBackup(false);
+      const cid = path.slice('/presence/'.length);
+      if (!cid || cid === this.clientId) return;
+      if (data && data.username) {
+        const isNew = !this.onlinePeers[cid];
+        this.onlinePeers[cid] = data;
+        if (isNew && typeof Game !== 'undefined') {
+          Game.addLog(`👋 玩家【${data.username}】已從雲端連線進入大場地（領地 #${(data.plotIndex ?? 0) + 1}）！`);
+        }
+      } else {
+        delete this.onlinePeers[cid];
+      }
+      if (typeof Game !== 'undefined') Game.updateOnlinePlayersUI();
     } else if (path === '/events') {
       this.applyFirebaseEvents(data || {});
     } else if (path.startsWith('/events/')) {
@@ -249,18 +283,9 @@ const NetEngine = {
 
   async saveToHttpServer(worldData) {
     if (this.fbEnabled && this.fbBaseUrl && worldData) {
-      try {
-        await fetch(`${this.fbBaseUrl}/world.json`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            json: JSON.stringify(worldData),
-            lastUpdated: worldData.lastUpdated || Date.now(),
-            lastWriter: this.clientId
-          })
-        });
-      } catch (e) {
-        console.error('Firebase save error:', e);
+      this.fbPendingWorldData = worldData;
+      if (!this.fbSavingWorld) {
+        this.flushFirebaseWorldQueue();
       }
     }
     if (!this.hasLocalHttpServer) return;
@@ -271,6 +296,32 @@ const NetEngine = {
         body: JSON.stringify(worldData)
       });
     } catch (e) {}
+  },
+
+  async flushFirebaseWorldQueue() {
+    if (this.fbSavingWorld) return;
+    this.fbSavingWorld = true;
+    try {
+      while (this.fbPendingWorldData) {
+        const nextData = this.fbPendingWorldData;
+        this.fbPendingWorldData = null;
+        const ts = nextData.lastUpdated || Date.now();
+        this.fbLastWorldUpdated = ts;
+        await fetch(`${this.fbBaseUrl}/world.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            json: JSON.stringify(nextData),
+            lastUpdated: ts,
+            lastWriter: this.clientId
+          })
+        });
+      }
+    } catch (e) {
+      console.error('Firebase save error:', e);
+    } finally {
+      this.fbSavingWorld = false;
+    }
   },
 
   autoConnectFixedRoom(roomId) {
