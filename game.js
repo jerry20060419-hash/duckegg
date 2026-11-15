@@ -2214,7 +2214,7 @@ const Game = {
               <button class="btn-sm btn-outline" style="flex:1" onclick="Game.renameMyDuck('${d.id}')">✏️ 改名</button>
             </div>
             <button class="btn-md btn-danger" onclick="Game.sacrificeDuckToPit('${d.id}')">
-              🕳️ 丟進中央大黑洞 (+${info.rarity.sacrificeValue}幣)
+              🕳️ 丟進中央大黑洞 (+${info.rarity.sacrificeValue}幣) [空白鍵]
             </button>
           ` : `
             <button class="btn-md btn-pink" onclick="Game.openSocialWithDuck(${ent.plotIndex}, '${d.id}', 'breed')">
@@ -2574,3 +2574,18 @@ const Game = {
 
 window.Game = Game;
 window.addEventListener('DOMContentLoaded', () => Game.init());
+window.addEventListener('keydown', (ev) => {
+  if (ev.code !== 'Space' && ev.key !== ' ') return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (document.querySelector('.modal-backdrop:not(.hidden)')) return;
+  if (
+    Game.selectedEntity &&
+    Game.selectedEntity.type === 'duck' &&
+    Game.selectedEntity.plotIndex === Game.getMyPlotIndex() &&
+    Game.selectedEntity.duck
+  ) {
+    ev.preventDefault();
+    Game.sacrificeDuckToPit(Game.selectedEntity.duck.id);
+  }
+});
