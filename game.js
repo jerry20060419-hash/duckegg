@@ -2042,11 +2042,35 @@ const Game = {
     const egg = (targetPlot.eggs || []).find(e => e.id === eggId);
     if (!egg) return;
 
+    if (egg.isClone || (egg.id && egg.id.startsWith('egg_clone_'))) {
+      this.notify('🥸 基因分身蛋不能再被重複偷摸喔！只能偷摸對方的原創鴨蛋！', 'warn');
+      return;
+    }
+
+    const stealCdMs = 60 * 1000;
+    const myAcc = this.getMyAccount();
+    const lastStealTs = Math.max(
+      (myAcc && myAcc.lastStealEggAt) || 0,
+      Number(localStorage.getItem('duckegg_steal_cd_' + (this.currentUser || '')) || 0)
+    );
+    const stealCdLeft = Math.ceil((lastStealTs + stealCdMs - Date.now()) / 1000);
+    if (stealCdLeft > 0) {
+      this.notify(`⏱️ 偷摸冷卻中，請再等 ${stealCdLeft} 秒！`, 'warn');
+      return;
+    }
+
     if (!egg.stolenBy) egg.stolenBy = [];
     if (egg.stolenBy.includes(this.currentUser)) {
       this.notify('🥸 這顆蛋你已經偷摸過一次基因分身囉！換別顆蛋試試吧！', 'warn');
       return;
     }
+
+    const nowSteal = Date.now();
+    if (myAcc) {
+      myAcc.lastStealEggAt = nowSteal;
+      myAcc.updatedAt = nowSteal;
+    }
+    try { localStorage.setItem('duckegg_steal_cd_' + (this.currentUser || ''), String(nowSteal)); } catch (e) {}
 
     const stamp = GRAFFITI_STAMPS.find(g => g.id === this.selectedGraffitiId) || GRAFFITI_STAMPS[0];
     egg.stolenBy.push(this.currentUser);
@@ -2062,6 +2086,7 @@ const Game = {
     const hatchSec = egg.isMutated ? HATCH_TIME_MUTATED_SEC : HATCH_TIME_NORMAL_SEC;
     const cloneEgg = {
       id: 'egg_clone_' + Date.now(),
+      isClone: true,
       rarity: egg.rarity,
       isMutated: !!egg.isMutated,
       head: egg.head,
@@ -2166,16 +2191,21 @@ const Game = {
     if (this.socialTab === 'breed') {
       const myAcc = this.getMyAccount();
       const cdLeftSec = this.getCrossBreedCooldownLeftSec(myAcc);
-      const cdTag = cdLeftSec > 0 ? ` (⏱️冷卻中 ${formatDurationMMSS(cdLeftSec)})` : '';
+      const selMy = myPlot.ducks.find(d => d.id === this.socialMyDuckId);
+      const selTarget = targetPlot.ducks.find(d => d.id === this.socialTargetDuckId);
+      const sameGender = selMy && selTarget && ((selMy.gender === 'F' ? 'F' : 'M') === (selTarget.gender === 'F' ? 'F' : 'M'));
+      const disabledAttr = (cdLeftSec > 0 || sameGender) ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : '';
+      const cdTag = cdLeftSec > 0 ? ` (⏱️冷卻中 ${formatDurationMMSS(cdLeftSec)})` : (sameGender ? ' (⚠️需一公一母)' : '');
       actionArea.innerHTML = `
         <div class="social-desc">
-          💕 <b>跨場借種相親規則</b>：雙方的鴨子<b>都不會消失</b>！配對後生出<b> 97% 雙親遺傳 / 3% 變異</b>的混血蛋（每次相親冷卻 <b>3 分鐘</b>）！
+          💕 <b>跨場借種相親規則</b>：必須選擇<b>一公一母 (♂ × ♀)</b>，雙方的鴨子<b>都不會消失</b>！配對後生出<b> 97% 雙親遺傳 / 3% 變異</b>的混血蛋（每次相親冷卻 <b>3 分鐘</b>）！
+          ${sameGender ? '<div style="color:#fda4af;font-weight:800;margin-top:4px;">⚠️ 目前選中的兩隻都是同性別，請改選一隻 ♂公鴨 與一隻 ♀母鴨！</div>' : ''}
         </div>
         <div class="social-btn-row">
           ${isOnline ? `
-            <button class="btn-lg btn-pink" ${cdLeftSec > 0 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''} onclick="Game.confirmCrossBreed(true)">💌 向在線夥伴【${targetPlot.owner}】發送相親邀請 (免費雙贏)${cdTag}</button>
+            <button class="btn-lg btn-pink" ${disabledAttr} onclick="Game.confirmCrossBreed(true)">💌 向在線夥伴【${targetPlot.owner}】發送相親邀請 (免費雙贏)${cdTag}</button>
           ` : ''}
-          <button class="btn-lg btn-gold" ${cdLeftSec > 0 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''} onclick="Game.confirmCrossBreed(false)">⚡ 自助借種相親 (花費 200 鴨幣立即產出混血蛋)${cdTag}</button>
+          <button class="btn-lg btn-gold" ${disabledAttr} onclick="Game.confirmCrossBreed(false)">⚡ 自助借種相親 (花費 200 鴨幣立即產出混血蛋)${cdTag}</button>
         </div>
       `;
     } else {
@@ -2231,6 +2261,13 @@ const Game = {
     const targetDuck = targetPlot.ducks.find(d => d.id === this.socialTargetDuckId);
     if (!myDuck || !targetDuck) {
       this.notify('請先各選一隻要進行相親配對的鴨子！', 'warn');
+      return;
+    }
+
+    const gMy = myDuck.gender === 'F' ? 'F' : 'M';
+    const gTarget = targetDuck.gender === 'F' ? 'F' : 'M';
+    if (gMy === gTarget) {
+      this.notify('⚠️ 跨場相親必須選擇「一公一母 (♂ × ♀)」才能配對喔！', 'warn');
       return;
     }
 
