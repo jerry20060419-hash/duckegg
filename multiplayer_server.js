@@ -24,6 +24,7 @@ const NetEngine = {
   fbEventSource: null,
   fbSeenEventIds: new Set(),
   fbConnectedAt: 0,
+  fbLastWorldUpdated: 0,
 
   async init() {
     if ('BroadcastChannel' in window) {
@@ -45,8 +46,10 @@ const NetEngine = {
         this.sendHeartbeat();
       }, 3000);
       setInterval(() => {
-        this.fbPollBackup();
-      }, 2500);
+        if (!this.fbEventSource || this.fbEventSource.readyState !== 1) {
+          this.fbPollBackup();
+        }
+      }, 4500);
       window.addEventListener('beforeunload', () => {
         if (this.fbEnabled && this.fbBaseUrl) {
           fetch(`${this.fbBaseUrl}/presence/${this.clientId}.json`, {
@@ -187,6 +190,8 @@ const NetEngine = {
   applyFirebaseWorld(data) {
     if (!data || !data.json) return;
     if (data.lastWriter === this.clientId) return;
+    if (data.lastUpdated && data.lastUpdated === this.fbLastWorldUpdated) return;
+    this.fbLastWorldUpdated = data.lastUpdated || Date.now();
     try {
       const serverWorld = JSON.parse(data.json);
       if (serverWorld && serverWorld.version === 3 && serverWorld.accounts && typeof Game !== 'undefined') {

@@ -102,7 +102,7 @@ const WorldCanvas = {
     if (!this.canvas) return;
     this.width = window.innerWidth;
     this.height = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     this.canvas.width = Math.floor(this.width * dpr);
     this.canvas.height = Math.floor(this.height * dpr);
     this.canvas.style.width = `${this.width}px`;
@@ -457,6 +457,9 @@ const WorldCanvas = {
 
   update(ts) {
     if (typeof Game === 'undefined' || !Game.ready) return;
+    const dt = this._lastTs ? Math.min(0.05, Math.max(0.001, (ts - this._lastTs) / 1000)) : (1 / 60);
+    this._lastTs = ts;
+    const step = dt * 60;
 
     const pb = this.PASTURE_BOUNDS;
     const plots = Game.getAllPlots();
@@ -479,12 +482,12 @@ const WorldCanvas = {
         const inFemaleSlot = rooms.some(rm => rm && rm.femaleId === d.id);
         if (inMaleSlot) {
           d.facing = 1;
-          d.walkPhase = (d.walkPhase || 0) + 0.14;
+          d.walkPhase = (d.walkPhase || 0) + 0.14 * step;
           return;
         }
         if (inFemaleSlot) {
           d.facing = -1;
-          d.walkPhase = (d.walkPhase || 0) + 0.14;
+          d.walkPhase = (d.walkPhase || 0) + 0.14 * step;
           return;
         }
 
@@ -492,18 +495,18 @@ const WorldCanvas = {
 
         const dist = Math.hypot((d.tx || 0) - d.lx, (d.ty || 0) - d.ly);
         if (dist < 6) {
-          if (Math.random() < 0.02) {
+          if (Math.random() < 0.02 * step) {
             d.tx = pb.minX + 40 + Math.random() * (pb.maxX - pb.minX - 80);
             d.ty = pb.minY + 40 + Math.random() * (pb.maxY - pb.minY - 80);
           }
         } else {
-          const spd = 0.9;
+          const spd = 0.9 * step;
           const dx = d.tx - d.lx;
           const dy = d.ty - d.ly;
           d.facing = dx >= 0 ? 1 : -1;
           d.lx += (dx / dist) * spd;
           d.ly += (dy / dist) * spd;
-          d.walkPhase = (d.walkPhase || 0) + 0.18;
+          d.walkPhase = (d.walkPhase || 0) + 0.18 * step;
         }
       });
     });
@@ -511,7 +514,7 @@ const WorldCanvas = {
     // 更新飛彈光束
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pj = this.projectiles[i];
-      pj.progress += 0.12;
+      pj.progress += 0.12 * step;
       if (pj.progress >= 1) {
         this.spawnBurstParticles(pj.tx, pj.ty, pj.color, 6);
         this.projectiles.splice(i, 1);
@@ -521,11 +524,11 @@ const WorldCanvas = {
     // 更新飛向黑洞的獻祭鴨
     for (let i = this.flyingDucks.length - 1; i >= 0; i--) {
       const fd = this.flyingDucks[i];
-      fd.progress += 0.035;
+      fd.progress += 0.035 * step;
       const t = fd.progress;
       fd.x = fd.startX * (1 - t);
       fd.y = fd.startY * (1 - t) - Math.sin(t * Math.PI) * 190;
-      fd.rot += 0.28;
+      fd.rot += 0.28 * step;
       if (fd.progress >= 1) {
         this.spawnBurstParticles(0, 0, '#f43f5e', 20);
         this.spawnFloatingText(0, -30, '🕳️ 呱啊啊～！！', '#fb7185', 20);
@@ -535,17 +538,17 @@ const WorldCanvas = {
 
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const pt = this.particles[i];
-      pt.x += pt.vx;
-      pt.y += pt.vy;
-      pt.life--;
+      pt.x += pt.vx * step;
+      pt.y += pt.vy * step;
+      pt.life -= step;
       pt.alpha = Math.max(0, pt.life / 35);
       if (pt.life <= 0) this.particles.splice(i, 1);
     }
 
     for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
       const ft = this.floatingTexts[i];
-      ft.y += ft.vy;
-      ft.life--;
+      ft.y += ft.vy * step;
+      ft.life -= step;
       ft.alpha = Math.max(0, ft.life / 40);
       if (ft.life <= 0) this.floatingTexts.splice(i, 1);
     }
@@ -567,16 +570,19 @@ const WorldCanvas = {
     this.drawCentralPitAndBossArena(ctx, ts);
     this.drawAllPlots(ctx, ts);
 
-    // 繪製戰鴨攻擊 Boss 的飛彈
+    // 繪製戰鴨攻擊 Boss 的飛彈（使用輕量光暈圓取代高耗能 shadowBlur）
     this.projectiles.forEach(pj => {
       const x = pj.sx + (pj.tx - pj.sx) * pj.progress;
       const y = pj.sy + (pj.ty - pj.sy) * pj.progress;
       ctx.save();
       ctx.fillStyle = pj.color;
-      ctx.shadowColor = pj.color;
-      ctx.shadowBlur = 12;
+      ctx.globalAlpha = 0.28;
       ctx.beginPath();
-      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.arc(x, y, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, 6.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     });
@@ -643,10 +649,22 @@ const WorldCanvas = {
   },
 
   drawWorldGround(ctx, ts) {
+    const halfW = (this.width / 2) / this.camera.zoom + 220;
+    const halfH = (this.height / 2) / this.camera.zoom + 220;
+    const minX = this.camera.x - halfW;
+    const maxX = this.camera.x + halfW;
+    const minY = this.camera.y - halfH;
+    const maxY = this.camera.y + halfH;
+
     const gridSize = 180;
+    const startGx = Math.max(-2200, Math.floor(minX / gridSize) * gridSize);
+    const endGx = Math.min(2200, Math.ceil(maxX / gridSize) * gridSize);
+    const startGy = Math.max(-1400, Math.floor(minY / gridSize) * gridSize);
+    const endGy = Math.min(1400, Math.ceil(maxY / gridSize) * gridSize);
+
     ctx.fillStyle = 'rgba(255,255,255,0.025)';
-    for (let gx = -2200; gx <= 2200; gx += gridSize) {
-      for (let gy = -1400; gy <= 1400; gy += gridSize) {
+    for (let gx = startGx; gx <= endGx; gx += gridSize) {
+      for (let gy = startGy; gy <= endGy; gy += gridSize) {
         if ((Math.abs(gx / gridSize) + Math.abs(gy / gridSize)) % 2 === 0) {
           ctx.fillRect(gx, gy, gridSize, gridSize);
         }
@@ -663,6 +681,7 @@ const WorldCanvas = {
     ctx.stroke();
 
     this.decorations.forEach(d => {
+      if (d.x < minX || d.x > maxX || d.y < minY || d.y > maxY) return;
       ctx.save();
       ctx.translate(d.x, d.y);
       ctx.scale(d.scale, d.scale);
@@ -818,7 +837,9 @@ const WorldCanvas = {
       ctx.textAlign = 'center';
       ctx.fillText(`${bossTier.name} HP: ${Math.ceil(raid.bossHp).toLocaleString()} / ${raid.bossMaxHp.toLocaleString()}`, 0, -176);
 
-      const remSec = raid.remainingSec !== undefined ? raid.remainingSec : 90;
+      const remSec = raid.startedAt
+        ? Math.max(0, (raid.durationSec || 90) - Math.floor((Date.now() - raid.startedAt) / 1000))
+        : (raid.remainingSec !== undefined ? raid.remainingSec : 90);
       const armorPct = Math.round((bossTier.armorReduction || 0) * 100);
       ctx.fillStyle = '#fde047';
       ctx.font = 'bold 15px "Microsoft JhengHei", sans-serif';
@@ -1054,7 +1075,9 @@ const WorldCanvas = {
       const elapsed = (typeof Game !== 'undefined' && Game.getEffectiveBreedElapsedSec && plotData)
         ? Game.getEffectiveBreedElapsedSec(plotData, rm)
         : (rm.elapsedSec || 0);
-      const totalSec = typeof BREED_TIME_SEC !== 'undefined' ? BREED_TIME_SEC : 60;
+      const totalSec = (typeof Game !== 'undefined' && Game.getPlotBreedTimeSec && plotData)
+        ? Game.getPlotBreedTimeSec(plotData)
+        : (typeof BREED_TIME_SEC !== 'undefined' ? BREED_TIME_SEC : 60);
       const pct = Math.min(1, elapsed / totalSec);
       const remSec = Math.max(0, totalSec - elapsed);
 

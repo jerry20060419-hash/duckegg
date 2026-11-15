@@ -182,12 +182,15 @@ const Game = {
           return;
         }
 
-        if (!curPlot || (incPlot.updatedAt || 0) >= (curPlot.updatedAt || 0)) {
+        // 自己的領地由本機即時控制，不被雲端舊快照蓋回導致倒數回溯；他人領地僅在更新時間嚴格較新時才覆蓋
+        const isMyOwnActivePlot = curPlot && this.currentUser && curPlot.owner === this.currentUser;
+        if (!isMyOwnActivePlot && (!curPlot || (incPlot.updatedAt || 0) > (curPlot.updatedAt || 0))) {
           if (curPlot && curPlot.ducks && incPlot.ducks) {
             incPlot.ducks.forEach(nd => {
               const old = curPlot.ducks.find(od => od.id === nd.id);
               if (old && old.lx !== undefined) {
                 nd.lx = old.lx; nd.ly = old.ly; nd.tx = old.tx; nd.ty = old.ty; nd.facing = old.facing;
+                nd.walkPhase = old.walkPhase;
               }
             });
           }
@@ -549,6 +552,7 @@ const Game = {
       }
 
       // 2. 離線期間 3 組交配室繼續計時產卵（直到鴨窩滿額為止），新產的蛋同樣倒計時到 0 停止
+      const breedTimeSec = this.getPlotBreedTimeSec(plot);
       const rooms = this.ensureBreedingRooms(plot);
       if (Array.isArray(plot.eggs) && Array.isArray(plot.ducks)) {
         rooms.forEach((rm, rIdx) => {
@@ -561,9 +565,9 @@ const Game = {
           if (plot.eggs.length >= plot.maxEggs) return;
 
           let total = (rm.elapsedSec || 0) + offlineSec;
-          let laidAt = BREED_TIME_SEC - (rm.elapsedSec || 0);
-          while (total >= BREED_TIME_SEC && plot.eggs.length < plot.maxEggs) {
-            total -= BREED_TIME_SEC;
+          let laidAt = breedTimeSec - (rm.elapsedSec || 0);
+          while (total >= breedTimeSec && plot.eggs.length < plot.maxEggs) {
+            total -= breedTimeSec;
             const newEgg = this.generateOffspringEgg(
               pMale,
               pFemale,
@@ -574,7 +578,7 @@ const Game = {
             newEgg.remainingSec = Math.max(0, newEgg.remainingSec - ageAfterLay);
             plot.eggs.push(newEgg);
             laidEgg = true;
-            laidAt += BREED_TIME_SEC;
+            laidAt += breedTimeSec;
           }
           rm.elapsedSec = plot.eggs.length >= plot.maxEggs ? 0 : total;
         });
@@ -587,6 +591,13 @@ const Game = {
     return laidEgg;
   },
 
+  getPlotBreedTimeSec(plot) {
+    if (!plot || !plot.owner || !this.world || !this.world.accounts) return BREED_TIME_SEC;
+    const acc = this.world.accounts[plot.owner];
+    const lv = acc ? (acc.breedSpeedLv || 1) : 1;
+    return Math.max(30, BREED_TIME_SEC - (lv - 1) * 3);
+  },
+
   getEffectiveBreedElapsedSec(plot, rm) {
     const baseElapsed = (rm && rm.elapsedSec) || 0;
     if (!plot || !plot.owner || this.isPlayerOnline(plot.owner)) {
@@ -596,7 +607,8 @@ const Game = {
     if (plot.eggs && plot.eggs.length >= plot.maxEggs) return baseElapsed;
     const lastTick = plot.lastTickAt || plot.updatedAt || Date.now();
     const elapsed = Math.max(0, Math.floor((Date.now() - lastTick) / 1000));
-    return (baseElapsed + elapsed) % BREED_TIME_SEC;
+    const breedTimeSec = this.getPlotBreedTimeSec(plot);
+    return (baseElapsed + elapsed) % breedTimeSec;
   },
 
   getEffectiveEggRemainingSec(plot, egg) {
@@ -625,7 +637,7 @@ const Game = {
     const plot = this.getMyPlot();
     acc.mailbox.forEach(item => {
       if (item.coins) acc.coins += item.coins;
-      if (item.egg && plot && plot.eggs.length < plot.maxEggs + 4) {
+      if (item.egg && plot && plot.eggs.length < plot.maxEggs) {
         plot.eggs.push(item.egg);
       }
       this.addLog(`📬 離線通知：${item.message}`);
@@ -718,7 +730,8 @@ const Game = {
     const rooms = this.ensureBreedingRooms(myPlot);
     const def = WorldCanvas.plotDefinitions[myPlot.plotIndex];
 
-    // 1. 【💕 3組公母生蛋交配室】自動交配產卵 (每組 60 秒產 1 顆蛋)
+    const myBreedTimeSec = this.getPlotBreedTimeSec(myPlot);
+    // 1. 【💕 3組公母生蛋交配室】自動交配產卵
     rooms.forEach((rm, rIdx) => {
       const maleDuck = myPlot.ducks.find(d => d.id === rm.maleId);
       const femaleDuck = myPlot.ducks.find(d => d.id === rm.femaleId);
@@ -733,7 +746,7 @@ const Game = {
           WorldCanvas.spawnFloatingText(def.x + slotPos.x + 85, def.y + slotPos.y - 18, '💕', '#f472b6', 15);
         }
 
-        if (rm.elapsedSec >= BREED_TIME_SEC) {
+        if (rm.elapsedSec >= myBreedTimeSec) {
           rm.elapsedSec = 0;
           this.layEggFromBreedingRoom(rIdx);
           worldChanged = true;
@@ -763,19 +776,29 @@ const Game = {
       this.renderInspector();
     }
 
-    // 3. 若正在進行【3+3 聯合小隊 Boss 共鬥】，由出戰鴨子自己攻擊 Boss 並檢查限時！
+    // 3. 若正在進行【3+3 聯合小隊 Boss 共鬥】，由出戰鴨子自己攻擊 Boss 並依真實開始時間同步倒數！
     const raid = this.world.bossRaid;
     if (raid && raid.active) {
-      if (raid.hostUser === this.currentUser || !this.isPlayerOnline(raid.hostUser)) {
+      if (raid.startedAt) {
+        const dur = raid.durationSec || BOSS_RAID_DURATION_SEC;
+        raid.remainingSec = Math.max(0, dur - Math.floor((Date.now() - raid.startedAt) / 1000));
+      } else {
         if (raid.remainingSec === undefined) raid.remainingSec = BOSS_RAID_DURATION_SEC;
         raid.remainingSec = Math.max(0, raid.remainingSec - 1);
-        if (raid.remainingSec <= 0 && raid.bossHp > 0) {
+      }
+
+      if (raid.remainingSec <= 0 && raid.bossHp > 0) {
+        if (raid.hostUser === this.currentUser || !this.isPlayerOnline(raid.hostUser)) {
           this.failBossRaidTimeout(true);
           worldChanged = true;
         }
       }
-      if (raid.active && raid.participants && raid.participants[this.currentUser]) {
-        this.performSquadAutoAttackOnBoss();
+
+      if (raid.active) {
+        this.updateBossDamageMeterUI();
+        if (raid.participants && raid.participants[this.currentUser]) {
+          this.performSquadAutoAttackOnBoss();
+        }
       }
     }
 
@@ -1372,6 +1395,8 @@ const Game = {
       bossName: tier.name,
       bossHp: tier.maxHp,
       bossMaxHp: tier.maxHp,
+      startedAt: Date.now(),
+      durationSec: BOSS_RAID_DURATION_SEC,
       remainingSec: BOSS_RAID_DURATION_SEC,
       hostUser: this.currentUser,
       updatedAt: Date.now(),
@@ -1803,9 +1828,9 @@ const Game = {
       sac.epicPlus = (sac.epicPlus || 0) + 1;
       tags.push('🔮紫鴨以上+1');
     }
-    if (['legendary', 'cursed'].includes(info.rarityKey) || info.isFullSet) {
+    if (['legendary', 'cursed'].includes(info.rarityKey) || (info.isFullSet && ['rare', 'epic', 'legendary', 'cursed'].includes(info.rarityKey))) {
       sac.legendaryOrSet = (sac.legendaryOrSet || 0) + 1;
-      tags.push('👑金/套裝鴨+1');
+      tags.push('👑金/稀套+1');
     }
     if (info.rarityKey === 'cursed' || (info.isFullSet && ['epic', 'legendary', 'cursed'].includes(info.rarityKey))) {
       sac.cursedOrHighSet = (sac.cursedOrHighSet || 0) + 1;
@@ -2055,7 +2080,16 @@ const Game = {
       return;
     }
 
+    const breedCdMs = 180 * 1000;
+    const cdLeftSec = Math.ceil(((myAcc.lastCrossBreedAt || 0) + breedCdMs - Date.now()) / 1000);
+    if (cdLeftSec > 0) {
+      this.notify(`⏱️ 跨場相親冷卻中，請再等 ${formatDurationMMSS(cdLeftSec)}！`, 'warn');
+      return;
+    }
+
     if (sendRequestToOnline) {
+      myAcc.lastCrossBreedAt = Date.now();
+      myAcc.updatedAt = Date.now();
       NetEngine.send('BREED_REQUEST', {
         requester: this.currentUser,
         requesterPlotIdx: myPlot.plotIndex,
@@ -2064,7 +2098,8 @@ const Game = {
         myDuck,
         targetDuck
       });
-      this.notify(`💌 已向【${targetPlot.owner}】發送跨場相親邀請，等待對方同意！`, 'info');
+      this.saveWorld(true);
+      this.notify(`💌 已向【${targetPlot.owner}】發送跨場相親邀請，等待對方同意！（冷卻 3 分鐘）`, 'info');
       document.getElementById('socialModal').classList.add('hidden');
       return;
     }
@@ -2075,6 +2110,8 @@ const Game = {
     }
 
     myAcc.coins -= 200;
+    myAcc.lastCrossBreedAt = Date.now();
+    myAcc.updatedAt = Date.now();
     const hybridEgg = this.generateOffspringEgg(
       myDuck,
       targetDuck,
@@ -2112,6 +2149,10 @@ const Game = {
   onBreedRequestAccepted(payload) {
     const myPlot = this.getMyPlot();
     if (!myPlot) return;
+    if (myPlot.eggs.length >= myPlot.maxEggs) {
+      this.notify(`⚠️ 對方同意了相親，但你的鴨窩已滿 (${myPlot.eggs.length}/${myPlot.maxEggs})，無法再放入新蛋！`, 'warn');
+      return;
+    }
     const hybridEgg = this.generateOffspringEgg(
       payload.myDuck,
       payload.targetDuck,
@@ -2213,6 +2254,11 @@ const Game = {
       this.joinActiveBossRaid();
     } else if (req.mode === 'breed') {
       const myPlot = this.getMyPlot();
+      if (myPlot && myPlot.eggs.length >= myPlot.maxEggs) {
+        this.notify(`🪺 你的孵化鴨窩已滿 (${myPlot.eggs.length}/${myPlot.maxEggs})，請先孵出蛋騰出空間再相親！`, 'warn');
+        this.pendingInteraction = null;
+        return;
+      }
       if (myPlot) {
         const egg = this.generateOffspringEgg(req.myDuck, req.targetDuck, MUTATED_EGG_CHANCE, `💕 跨場相親 (${req.myDuck.name} × ${req.targetDuck.name})`);
         myPlot.eggs.push(egg);
@@ -2493,10 +2539,24 @@ const Game = {
     if (!acc || !plot) return;
 
     const mutCost = (acc.mutationLv || 1) * 1200;
+    const breedSpeedLv = acc.breedSpeedLv || 1;
+    const curBreedSec = this.getPlotBreedTimeSec(plot);
+    const isMaxBreedSpeed = curBreedSec <= 30;
+    const breedSpeedCost = breedSpeedLv * 1000;
     const duckCapCost = Math.max(800, ((plot.maxDucks || 24) - 20) * 320);
     const eggCapCost = Math.max(700, ((plot.maxEggs || 12) - 10) * 380);
 
     document.getElementById('upgradeListContainer').innerHTML = `
+      <div class="upg-card">
+        <div>
+          <div class="upg-name">💕 交配室產卵加速 (目前 Lv.${breedSpeedLv}｜${curBreedSec} 秒/顆)</div>
+          <div class="upg-desc">每次升級可小幅縮短交配室產卵時間 <b>-3 秒</b>（最低可加速至 30 秒/顆）！</div>
+        </div>
+        ${isMaxBreedSpeed
+          ? `<button class="btn-md btn-outline" disabled>✅ 已滿級</button>`
+          : `<button class="btn-md btn-gold" onclick="Game.buyUpgrade('breedSpeed', ${breedSpeedCost})">💰 ${breedSpeedCost.toLocaleString()} 升級</button>`
+        }
+      </div>
       <div class="upg-card">
         <div>
           <div class="upg-name">🧬 突變高階基因研究所 (目前 Lv.${acc.mutationLv || 1})</div>
@@ -2532,7 +2592,16 @@ const Game = {
     }
 
     acc.coins -= cost;
-    if (type === 'mutation') {
+    if (type === 'breedSpeed') {
+      if (this.getPlotBreedTimeSec(plot) <= 30) {
+        acc.coins += cost;
+        this.notify('💕 交配室產卵速度已達上限 (30秒/顆)！', 'info');
+        return;
+      }
+      acc.breedSpeedLv = (acc.breedSpeedLv || 1) + 1;
+      acc.updatedAt = Date.now();
+      this.notify(`💕 交配室產卵速度提升至 Lv.${acc.breedSpeedLv}（每 ${this.getPlotBreedTimeSec(plot)} 秒產卵）！`, 'success');
+    } else if (type === 'mutation') {
       acc.mutationLv = (acc.mutationLv || 1) + 1;
       this.notify(`🧬 突變研究所已提升至 Lv.${acc.mutationLv}！`, 'success');
     } else if (type === 'maxDucks') {
