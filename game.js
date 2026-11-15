@@ -530,10 +530,11 @@ const Game = {
 
   // 離線期間繼續計算「孵蛋倒計時（到 0 停止不孵化）」與「交配室產卵計時」；上線後再由 tick() 依序孵出
   applyOfflineEggCountdown(plot) {
-    if (!plot) return;
+    if (!plot) return false;
     const now = Date.now();
     const lastTick = plot.lastTickAt || plot.updatedAt || now;
     const offlineSec = Math.max(0, Math.floor((now - lastTick) / 1000));
+    let laidEgg = false;
 
     if (offlineSec > 0) {
       // 1. 先推進原本鴨窩裡既有鴨蛋的倒計時（只到 0 為止，不自動孵化）
@@ -572,14 +573,30 @@ const Game = {
             const ageAfterLay = Math.max(0, offlineSec - laidAt);
             newEgg.remainingSec = Math.max(0, newEgg.remainingSec - ageAfterLay);
             plot.eggs.push(newEgg);
+            laidEgg = true;
             laidAt += BREED_TIME_SEC;
           }
           rm.elapsedSec = plot.eggs.length >= plot.maxEggs ? 0 : total;
         });
       }
+      plot.lastTickAt = lastTick + offlineSec * 1000;
+    } else if (!plot.lastTickAt) {
+      plot.lastTickAt = now;
     }
 
-    plot.lastTickAt = now;
+    return laidEgg;
+  },
+
+  getEffectiveBreedElapsedSec(plot, rm) {
+    const baseElapsed = (rm && rm.elapsedSec) || 0;
+    if (!plot || !plot.owner || this.isPlayerOnline(plot.owner)) {
+      return baseElapsed;
+    }
+    if (!rm || !rm.maleId || !rm.femaleId) return 0;
+    if (plot.eggs && plot.eggs.length >= plot.maxEggs) return baseElapsed;
+    const lastTick = plot.lastTickAt || plot.updatedAt || Date.now();
+    const elapsed = Math.max(0, Math.floor((Date.now() - lastTick) / 1000));
+    return (baseElapsed + elapsed) % BREED_TIME_SEC;
   },
 
   getEffectiveEggRemainingSec(plot, egg) {
@@ -767,6 +784,21 @@ const Game = {
         this.performSquadAutoAttackOnBoss();
       }
     }
+
+    // 4. 若夥伴目前離線，由在線玩家代為推進他的交配室產卵與蛋倒計時（只產卵＆倒數到 0，絕不代為孵化）並同步雲端
+    const nowMs = Date.now();
+    this.world.plots.forEach(p => {
+      if (!p || !p.owner || p.owner === this.currentUser) return;
+      if (this.isPlayerOnline(p.owner)) return;
+      const lastP = p.lastTickAt || p.updatedAt || 0;
+      if (nowMs - lastP >= 6000) {
+        const laidNewEgg = this.applyOfflineEggCountdown(p);
+        if (laidNewEgg) {
+          p.updatedAt = nowMs;
+          worldChanged = true;
+        }
+      }
+    });
 
     if (worldChanged) {
       this.saveWorld(true);

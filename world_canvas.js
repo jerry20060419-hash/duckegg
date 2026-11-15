@@ -1051,7 +1051,9 @@ const WorldCanvas = {
       ctx.font = 'bold 12px "Microsoft JhengHei", sans-serif';
       ctx.fillText(`${hasMale && hasFemale ? '💖' : '🤍'} 交配室 #${r + 1}`, midX, roomTop + 24);
 
-      const elapsed = rm.elapsedSec || 0;
+      const elapsed = (typeof Game !== 'undefined' && Game.getEffectiveBreedElapsedSec && plotData)
+        ? Game.getEffectiveBreedElapsedSec(plotData, rm)
+        : (rm.elapsedSec || 0);
       const totalSec = typeof BREED_TIME_SEC !== 'undefined' ? BREED_TIME_SEC : 60;
       const pct = Math.min(1, elapsed / totalSec);
       const remSec = Math.max(0, totalSec - elapsed);
