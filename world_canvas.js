@@ -1106,7 +1106,7 @@ const WorldCanvas = {
     ctx.font = 'bold 15px "Microsoft JhengHei", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(
-      `🪺 孵化鴨窩區 (${(plotData.eggs || []).length}/${plotData.maxEggs || 12})｜一般蛋1分 / 🧬變異蛋3分自動破殼`,
+      `🪺 孵化鴨窩區 (${(plotData.eggs || []).length}/${plotData.maxEggs || 12})｜一般蛋1分 / 🧬變異蛋3分 (時間到點擊孵化)`,
       nz.x + nz.w / 2,
       nz.y + 28
     );
@@ -1178,7 +1178,7 @@ const WorldCanvas = {
 
     ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
     ctx.fillRect(x - 22, y + 23, 44, 6);
-    ctx.fillStyle = remSec <= 0 ? (ownerOnline ? '#22c55e' : '#94a3b8') : (egg.isMutated ? '#c084fc' : '#fde047');
+    ctx.fillStyle = remSec <= 0 ? '#22c55e' : (egg.isMutated ? '#c084fc' : '#fde047');
     ctx.fillRect(x - 21, y + 24, 42 * pct, 4);
 
     ctx.font = 'bold 11px sans-serif';
@@ -1186,10 +1186,10 @@ const WorldCanvas = {
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 3;
     const timeStr = remSec <= 0
-      ? (ownerOnline ? '🐣可破殼' : '⏸️待上線孵化')
+      ? '🥚待孵化'
       : `${egg.isMutated ? '🧬' : '⏱️'}${formatDurationMMSS(remSec)}`;
     ctx.strokeText(timeStr, x, y + 40);
-    ctx.fillStyle = remSec <= 0 && !ownerOnline ? '#cbd5e1' : (egg.isMutated ? '#e9d5ff' : '#fef08a');
+    ctx.fillStyle = remSec <= 0 ? '#4ade80' : (egg.isMutated ? '#e9d5ff' : '#fef08a');
     ctx.fillText(timeStr, x, y + 40);
   },
 

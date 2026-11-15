@@ -743,7 +743,7 @@ const Game = {
       }
     });
 
-    // 2. 【🪺 孵化鴨窩區】鴨蛋倒計時自動孵化 (非變異蛋 60秒 / 變異蛋 180秒)
+    // 2. 【🪺 孵化鴨窩區】鴨蛋倒計時 (非變異蛋 60秒 / 變異蛋 180秒)，歸零後停止並標示「待孵化」，需玩家手動點擊或一鍵孵化
     if (myPlot.eggs && myPlot.eggs.length > 0) {
       for (let ei = myPlot.eggs.length - 1; ei >= 0; ei--) {
         const egg = myPlot.eggs[ei];
@@ -754,12 +754,6 @@ const Game = {
 
         if (egg.remainingSec > 0) {
           egg.remainingSec--;
-        }
-
-        // 倒計時歸零且鴨場有空位時，自動破殼孵化！
-        if (egg.remainingSec <= 0 && myPlot.ducks.length < myPlot.maxDucks) {
-          this.autoHatchEggAtIndex(ei);
-          worldChanged = true;
         }
       }
     }
@@ -1135,7 +1129,7 @@ const Game = {
     WorldCanvas.spawnFloatingText(
       worldX,
       worldY - 30,
-      `🐣 自動破殼！【${info.rarity.name}】${gSymbol}${newDuck.name} (⚔️${info.combatPower})`,
+      `🐣 破殼孵化！【${info.rarity.name}】${gSymbol}${newDuck.name} (⚔️${info.combatPower})`,
       info.rarity.color,
       18
     );
@@ -1149,6 +1143,65 @@ const Game = {
 
     if (this.selectedEntity && this.selectedEntity.type === 'egg' && this.selectedEntity.egg.id === egg.id) {
       this.onSelectEntity({ type: 'duck', duck: newDuck, plotIndex: plot.plotIndex });
+    }
+    return true;
+  },
+
+  hatchEggById(eggId) {
+    const plot = this.getMyPlot();
+    if (!plot || !Array.isArray(plot.eggs)) return false;
+    const ei = plot.eggs.findIndex(e => e.id === eggId);
+    if (ei === -1) return false;
+    const egg = plot.eggs[ei];
+    if ((egg.remainingSec || 0) > 0) {
+      this.notify(`⏱️ 這顆蛋還需要等待 ${formatDurationMMSS(egg.remainingSec)} 才能孵化喔！`, 'info');
+      return false;
+    }
+    if (plot.ducks.length >= plot.maxDucks) {
+      this.notify(`⚠️ 鴨場已滿 (${plot.ducks.length}/${plot.maxDucks})，請先丟棄淘汰鴨或擴充容量！`, 'warn');
+      return false;
+    }
+    if (this.autoHatchEggAtIndex(ei)) {
+      this.saveWorld(true);
+      return true;
+    }
+    return false;
+  },
+
+  hatchAllReadyEggs() {
+    const plot = this.getMyPlot();
+    if (!plot || !Array.isArray(plot.eggs) || plot.eggs.length === 0) {
+      this.notify('🥚 鴨窩裡目前沒有蛋喔！', 'info');
+      return;
+    }
+    const readyCount = plot.eggs.filter(e => (e.remainingSec || 0) <= 0).length;
+    if (readyCount === 0) {
+      this.notify('⏱️ 目前還沒有「待孵化」的鴨蛋喔！', 'info');
+      return;
+    }
+    if (plot.ducks.length >= plot.maxDucks) {
+      this.notify(`⚠️ 鴨場已滿 (${plot.ducks.length}/${plot.maxDucks})，請先丟棄淘汰鴨或擴充容量！`, 'warn');
+      return;
+    }
+
+    let hatchedCount = 0;
+    for (let ei = plot.eggs.length - 1; ei >= 0; ei--) {
+      if (plot.ducks.length >= plot.maxDucks) break;
+      if ((plot.eggs[ei].remainingSec || 0) <= 0) {
+        if (this.autoHatchEggAtIndex(ei)) {
+          hatchedCount++;
+        }
+      }
+    }
+
+    if (hatchedCount > 0) {
+      this.saveWorld(true);
+      const leftReady = plot.eggs.filter(e => (e.remainingSec || 0) <= 0).length;
+      if (leftReady > 0) {
+        this.notify(`🐣 已孵化 ${hatchedCount} 隻怪鴨！（鴨場已滿，還有 ${leftReady} 顆待孵化）`, 'warn');
+      } else {
+        this.notify(`🐣 一鍵孵蛋完成！共孵出 ${hatchedCount} 隻怪鴨！`, 'success');
+      }
     }
   },
 
@@ -2205,7 +2258,16 @@ const Game = {
       return;
     }
 
-    if (hit.type === 'egg' || hit.type === 'duck') {
+    if (hit.type === 'egg') {
+      if (this.isMyPlot(hit.plotIndex) && (hit.egg.remainingSec || 0) <= 0) {
+        this.hatchEggById(hit.egg.id);
+        return;
+      }
+      this.onSelectEntity(hit);
+      return;
+    }
+
+    if (hit.type === 'duck') {
       this.onSelectEntity(hit);
       return;
     }
@@ -2328,10 +2390,10 @@ const Game = {
       const remSec = this.getEffectiveEggRemainingSec(plot, egg);
       const ownerOnline = plot && plot.owner ? this.isPlayerOnline(plot.owner) : false;
       const eggTypeBadge = egg.isMutated
-        ? `<span style="color:#c084fc;font-weight:900;">🧬 基因變異蛋 (3分鐘自動孵化)</span>`
-        : `<span style="color:#fde047;font-weight:900;">🥚 一般遺傳蛋 (1分鐘自動孵化)</span>`;
-      const hatchStatusText = (remSec <= 0 && !ownerOnline)
-        ? `⏸️ 00:00 (主人離線中・上線後自動孵化)`
+        ? `<span style="color:#c084fc;font-weight:900;">🧬 基因變異蛋 (3分鐘孵化)</span>`
+        : `<span style="color:#fde047;font-weight:900;">🥚 一般遺傳蛋 (1分鐘孵化)</span>`;
+      const hatchStatusText = remSec <= 0
+        ? `🥚 待孵化！（點擊蛋或下方按鈕破殼）`
         : `${formatDurationMMSS(remSec)}`;
 
       const graffitiHtml = (egg.graffiti && egg.graffiti.length > 0)
@@ -2355,8 +2417,13 @@ const Game = {
         <div class="insp-title" style="color:${rObj.color}">【${plot ? plot.owner : '夥伴'}】鴨窩裡的蛋</div>
         <div style="text-align:center;font-size:13px;margin:6px 0;">${eggTypeBadge}</div>
         <div style="text-align:center;font-size:16px;font-weight:900;color:#4ade80;margin-bottom:8px;">
-          ⏱️ 自動破殼倒計時：${hatchStatusText}
+          ⏱️ 孵化狀態：${hatchStatusText}
         </div>
+        ${isMine && remSec <= 0 ? `
+          <button class="btn-md btn-gold full-w" style="margin-bottom:10px;" onclick="Game.hatchEggById('${egg.id}')">
+            🐣 點擊孵化這顆蛋
+          </button>
+        ` : ''}
         <div class="insp-owner">來源：${egg.parentInfo || '雙親交配'}</div>
         <div class="graffiti-box">
           <div class="gb-title">🎨 蛋殼塗鴉紀錄：</div>
@@ -2665,10 +2732,17 @@ const Game = {
 window.Game = Game;
 window.addEventListener('DOMContentLoaded', () => Game.init());
 window.addEventListener('keydown', (ev) => {
-  if (ev.code !== 'Space' && ev.key !== ' ') return;
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   if (document.querySelector('.modal-backdrop:not(.hidden)')) return;
+
+  if (ev.code === 'KeyH' || (ev.key && ev.key.toLowerCase() === 'h')) {
+    ev.preventDefault();
+    Game.hatchAllReadyEggs();
+    return;
+  }
+
+  if (ev.code !== 'Space' && ev.key !== ' ') return;
   if (
     Game.selectedEntity &&
     Game.selectedEntity.type === 'duck' &&
