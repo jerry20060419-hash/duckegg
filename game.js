@@ -528,21 +528,57 @@ const Game = {
     this.notify(`🦆 歡迎回來，【${username}】！（巨型領地 #${acc.plotIndex + 1}）`, 'success');
   },
 
-  // 離線期間只計算倒計時到 0 為止（不於離線時自動孵出）；上線後再由 tick() 依序自動孵出
+  // 離線期間繼續計算「孵蛋倒計時（到 0 停止不孵化）」與「交配室產卵計時」；上線後再由 tick() 依序孵出
   applyOfflineEggCountdown(plot) {
-    if (!plot || !Array.isArray(plot.eggs) || plot.eggs.length === 0) return;
+    if (!plot) return;
     const now = Date.now();
     const lastTick = plot.lastTickAt || plot.updatedAt || now;
     const offlineSec = Math.max(0, Math.floor((now - lastTick) / 1000));
+
     if (offlineSec > 0) {
-      plot.eggs.forEach(egg => {
-        if (egg.remainingSec === undefined) {
-          egg.totalSec = egg.isMutated ? HATCH_TIME_MUTATED_SEC : HATCH_TIME_NORMAL_SEC;
-          egg.remainingSec = egg.totalSec;
-        }
-        egg.remainingSec = Math.max(0, egg.remainingSec - offlineSec);
-      });
+      // 1. 先推進原本鴨窩裡既有鴨蛋的倒計時（只到 0 為止，不自動孵化）
+      if (Array.isArray(plot.eggs)) {
+        plot.eggs.forEach(egg => {
+          if (egg.remainingSec === undefined) {
+            egg.totalSec = egg.isMutated ? HATCH_TIME_MUTATED_SEC : HATCH_TIME_NORMAL_SEC;
+            egg.remainingSec = egg.totalSec;
+          }
+          egg.remainingSec = Math.max(0, egg.remainingSec - offlineSec);
+        });
+      }
+
+      // 2. 離線期間 3 組交配室繼續計時產卵（直到鴨窩滿額為止），新產的蛋同樣倒計時到 0 停止
+      const rooms = this.ensureBreedingRooms(plot);
+      if (Array.isArray(plot.eggs) && Array.isArray(plot.ducks)) {
+        rooms.forEach((rm, rIdx) => {
+          const pMale = plot.ducks.find(d => d.id === rm.maleId);
+          const pFemale = plot.ducks.find(d => d.id === rm.femaleId);
+          if (!pMale || !pFemale) {
+            rm.elapsedSec = 0;
+            return;
+          }
+          if (plot.eggs.length >= plot.maxEggs) return;
+
+          let total = (rm.elapsedSec || 0) + offlineSec;
+          let laidAt = BREED_TIME_SEC - (rm.elapsedSec || 0);
+          while (total >= BREED_TIME_SEC && plot.eggs.length < plot.maxEggs) {
+            total -= BREED_TIME_SEC;
+            const newEgg = this.generateOffspringEgg(
+              pMale,
+              pFemale,
+              MUTATED_EGG_CHANCE,
+              `💕 交配室#${rIdx + 1} (♂${pMale.name} × ♀${pFemale.name})`
+            );
+            const ageAfterLay = Math.max(0, offlineSec - laidAt);
+            newEgg.remainingSec = Math.max(0, newEgg.remainingSec - ageAfterLay);
+            plot.eggs.push(newEgg);
+            laidAt += BREED_TIME_SEC;
+          }
+          rm.elapsedSec = plot.eggs.length >= plot.maxEggs ? 0 : total;
+        });
+      }
     }
+
     plot.lastTickAt = now;
   },
 
@@ -863,40 +899,62 @@ const Game = {
     }
 
     const rooms = this.ensureBreedingRooms(plot);
-    const usedIds = new Set();
+    const prevSlots = rooms.map(rm => ({ maleId: rm.maleId, femaleId: rm.femaleId }));
+
+    const allMales = [...plot.ducks]
+      .filter(d => d.gender === 'M')
+      .sort((a, b) => evaluateDuckInfo(b).combatPower - evaluateDuckInfo(a).combatPower);
+    const allFemales = [...plot.ducks]
+      .filter(d => d.gender === 'F')
+      .sort((a, b) => evaluateDuckInfo(b).combatPower - evaluateDuckInfo(a).combatPower);
+
+    const topMales = allMales.slice(0, MAX_BREED_ROOMS);
+    const topFemales = allFemales.slice(0, MAX_BREED_ROOMS);
+    const topMaleIds = new Set(topMales.map(d => d.id));
+    const topFemaleIds = new Set(topFemales.map(d => d.id));
+
+    // 先保留已經在交配室內的「前 3 高戰力鴨」，清掉戰力較低或已不存在的舊鴨
+    const keptMaleIds = new Set();
+    const keptFemaleIds = new Set();
     rooms.forEach(rm => {
-      if (rm.maleId) usedIds.add(rm.maleId);
-      if (rm.femaleId) usedIds.add(rm.femaleId);
+      if (rm.maleId && topMaleIds.has(rm.maleId) && !keptMaleIds.has(rm.maleId)) {
+        keptMaleIds.add(rm.maleId);
+      } else {
+        rm.maleId = null;
+      }
+      if (rm.femaleId && topFemaleIds.has(rm.femaleId) && !keptFemaleIds.has(rm.femaleId)) {
+        keptFemaleIds.add(rm.femaleId);
+      } else {
+        rm.femaleId = null;
+      }
     });
 
-    const freeMales = [...plot.ducks]
-      .filter(d => d.gender === 'M' && !usedIds.has(d.id))
-      .sort((a, b) => evaluateDuckInfo(b).combatPower - evaluateDuckInfo(a).combatPower);
-    const freeFemales = [...plot.ducks]
-      .filter(d => d.gender === 'F' && !usedIds.has(d.id))
-      .sort((a, b) => evaluateDuckInfo(b).combatPower - evaluateDuckInfo(a).combatPower);
+    const freeTopMales = topMales.filter(d => !keptMaleIds.has(d.id));
+    const freeTopFemales = topFemales.filter(d => !keptFemaleIds.has(d.id));
 
-    let assignedCount = 0;
+    let changedCount = 0;
     for (let r = 0; r < MAX_BREED_ROOMS; r++) {
       const rm = rooms[r];
-      if (!rm.maleId && freeMales.length > 0) {
-        const m = freeMales.shift();
-        rm.maleId = m.id;
-        rm.elapsedSec = 0;
-        assignedCount++;
+      if (!rm.maleId && freeTopMales.length > 0) {
+        rm.maleId = freeTopMales.shift().id;
       }
-      if (!rm.femaleId && freeFemales.length > 0) {
-        const f = freeFemales.shift();
-        rm.femaleId = f.id;
+      if (!rm.femaleId && freeTopFemales.length > 0) {
+        rm.femaleId = freeTopFemales.shift().id;
+      }
+      if (rm.maleId !== prevSlots[r].maleId || rm.femaleId !== prevSlots[r].femaleId) {
         rm.elapsedSec = 0;
-        assignedCount++;
+        changedCount++;
       }
     }
 
     const activePairs = rooms.filter(rm => rm.maleId && rm.femaleId).length;
     if (activePairs > 0) {
       plot.updatedAt = Date.now();
-      this.notify(`💕 目前共有 ${activePairs}/3 組交配室運作中（產卵週期 60 秒）！`, 'success');
+      if (changedCount > 0) {
+        this.notify(`💕 已自動派出／替換戰力最強的公母鴨（目前 ${activePairs}/3 組運作中）！`, 'success');
+      } else {
+        this.notify(`💕 目前已經是場上最高戰力組合（${activePairs}/3 組運作中）！`, 'info');
+      }
       this.saveWorld(true);
     } else {
       this.notify('⚠️ 需要場上同時有 ♂公鴨 與 ♀母鴨 才能配對交配喔！', 'warn');
