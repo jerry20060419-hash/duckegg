@@ -125,7 +125,7 @@
         <button class="btn-close" onclick="if(Game.currentUser) document.getElementById('authModal').classList.add('hidden')">✕</button>
       </div>
       <p style="font-size:13px;color:#cbd5e1;margin-bottom:12px;">
-        本世界專為<b>雙人連線同玩</b>設計，僅顯示已登入過系統的玩家領地（無常駐NPC）。所有帳號、怪鴨、戰隊與圖鑑皆保存在本地資料庫，關閉重開後完整保留！
+        本世界專為<b>雙人連線同玩</b>設計，僅顯示已登入過系統的玩家領地（無常駐NPC）。所有帳號、怪鴨、戰隊與圖鑑皆保存在<b>雲端伺服器</b>與本機，換電腦或重開後完整保留！
       </p>
       <div class="auth-form-box">
         <label style="font-size:13px;font-weight:700;color:#fde047;">玩家帳號名稱：</label>
@@ -134,8 +134,8 @@
         <input id="authPin" class="form-input" type="password" placeholder="選填密碼" onkeydown="if(event.key==='Enter') Game.submitAuthForm()" />
         <button class="btn-lg btn-gold full-w" onclick="Game.submitAuthForm()">🚀 進入雙人巨型大農場 (自動註冊/登入)</button>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <div style="font-size:14px;font-weight:800;color:#38bdf8;">📂 本機已記錄的玩家帳號（點擊一鍵登入）：</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+        <div style="font-size:14px;font-weight:800;color:#38bdf8;">☁️ 伺服器 ＆ 本機所有帳號（點擊一鍵登入）：</div>
         <button class="btn-sm btn-danger" onclick="Game.resetAllWorldData()" title="一鍵清空本機與伺服器所有帳號與領地紀錄">🧹 清空全部帳號資料</button>
       </div>
       <div>

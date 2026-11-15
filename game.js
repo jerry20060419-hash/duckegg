@@ -267,16 +267,25 @@ const Game = {
   openAuthModal() {
     this.renderSavedAccountsList();
     document.getElementById('authModal').classList.remove('hidden');
+    if (typeof NetEngine !== 'undefined' && NetEngine.fbEnabled) {
+      NetEngine.fbPollBackup(false);
+    }
   },
 
   renderSavedAccountsList() {
     const container = document.getElementById('savedAccountsList');
     if (!container) return;
-    const names = Object.keys(this.world.accounts);
+    const names = Object.keys(this.world.accounts).sort((a, b) => {
+      return (this.world.accounts[a].plotIndex ?? 99) - (this.world.accounts[b].plotIndex ?? 99);
+    });
     if (names.length === 0) {
-      container.innerHTML = `<div class="empty-hint">目前尚無已註冊的玩家帳號，請在上方輸入名稱創建你的專屬巨型鴨場！</div>`;
+      container.innerHTML = `<div class="empty-hint">目前雲端與本機尚無已註冊的玩家帳號，請在上方輸入名稱創建你的專屬巨型鴨場！</div>`;
       return;
     }
+
+    const onlineNames = new Set(
+      Object.values(NetEngine.onlinePeers || {}).map(p => p.username).filter(Boolean)
+    );
 
     container.innerHTML = names.map(uname => {
       const acc = this.world.accounts[uname];
@@ -284,10 +293,16 @@ const Game = {
       const duckCount = plot && plot.ducks ? plot.ducks.length : 0;
       const pwr = this.getPlotTotalPower(plot);
       const safeName = uname.replace(/'/g, "\\'");
+      let statusBadge = `<span style="color:#94a3b8;font-size:11px;margin-left:6px;">☁️ 雲端已存檔</span>`;
+      if (this.currentUser === uname) {
+        statusBadge = `<span style="color:#4ade80;font-size:11px;margin-left:6px;">● 本機登入中</span>`;
+      } else if (onlineNames.has(uname)) {
+        statusBadge = `<span style="color:#22c55e;font-size:11px;margin-left:6px;">🟢 夥伴在線中</span>`;
+      }
       return `
         <div class="saved-account-card" onclick="Game.quickLogin('${safeName}')">
           <div>
-            <div class="acc-name">🦆 ${uname} <span class="acc-plot-tag">巨型領地 #${acc.plotIndex + 1}</span></div>
+            <div class="acc-name">🦆 ${uname} <span class="acc-plot-tag">巨型領地 #${acc.plotIndex + 1}</span>${statusBadge}</div>
             <div class="acc-meta">💰 ${acc.coins || 0} 鴨幣 ｜ 🦆 ${duckCount} 隻鴨 ｜ ⚔️ 領地戰力 ${pwr.toLocaleString()}</div>
           </div>
           <div style="display:flex;gap:6px;align-items:center;">
@@ -321,7 +336,7 @@ const Game = {
       this.closeInspector();
     }
 
-    this.saveWorld(false);
+    this.saveWorld(true);
     NetEngine.send('ACCOUNT_DELETED', { username, plotIdx });
     this.renderSavedAccountsList();
     this.notify(`🗑️ 已永久刪除帳號【${username}】的領地資料！`, 'info');
