@@ -600,7 +600,7 @@ const Game = {
 
   getEffectiveBreedElapsedSec(plot, rm) {
     const baseElapsed = (rm && rm.elapsedSec) || 0;
-    if (!plot || !plot.owner || this.isPlayerOnline(plot.owner)) {
+    if (!plot || !plot.owner || plot.owner === this.currentUser) {
       return baseElapsed;
     }
     if (!rm || !rm.maleId || !rm.femaleId) return 0;
@@ -615,7 +615,7 @@ const Game = {
     const baseRem = egg.remainingSec !== undefined
       ? egg.remainingSec
       : (egg.isMutated ? HATCH_TIME_MUTATED_SEC : HATCH_TIME_NORMAL_SEC);
-    if (!plot || !plot.owner || this.isPlayerOnline(plot.owner)) {
+    if (!plot || !plot.owner || plot.owner === this.currentUser) {
       return Math.max(0, baseRem);
     }
     const lastTick = plot.lastTickAt || plot.updatedAt || Date.now();
@@ -1367,8 +1367,13 @@ const Game = {
     }).join('');
   },
 
-  // 發起連線組隊討伐 Boss（採用【30隻祭品召喚制】：需累積滿 30 隻對應階級祭品並由玩家手動發起）
+  // 發起連線組隊討伐 Boss（需另一位玩家在線並點擊同意後才會正式扣除祭品並開戰！）
   launchCoopBossRaid(sendInvite = true) {
+    if (this.world.bossRaid && this.world.bossRaid.active) {
+      this.notify('⚔️ 目前已經有一場 Boss 討伐戰正在進行中！', 'warn');
+      return;
+    }
+
     const squad = this.getMySquadDucks();
     if (squad.length === 0) {
       this.notify('⚠️ 請至少編入 1 隻怪鴨到出戰小隊！', 'warn');
@@ -1383,14 +1388,63 @@ const Game = {
       return;
     }
 
-    // 扣除召喚該階級 Boss 所需的 30 隻祭品
+    const onlineCount = Object.keys(NetEngine.onlinePeers || {}).length;
+    if (onlineCount === 0) {
+      this.notify('⚠️ 打 Boss 需要另一位玩家在線並同意才能開始！請等夥伴上線後再發起邀請。', 'warn');
+      return;
+    }
+
+    const myPower = this.getMySquadTotalPower();
+    const raidId = 'raid_' + Date.now();
+    this.pendingOutgoingBossInvite = {
+      raidId,
+      hostUser: this.currentUser,
+      bossTierId: tier.id,
+      squad: JSON.parse(JSON.stringify(squad)),
+      squadPower: myPower,
+      createdAt: Date.now()
+    };
+
+    document.getElementById('squadBossModal').classList.add('hidden');
+    NetEngine.send('BOSS_RAID_INVITE', {
+      raidId,
+      hostUser: this.currentUser,
+      bossTierId: tier.id,
+      bossName: tier.name,
+      bossMaxHp: tier.maxHp
+    });
+    this.addLog(`⏳ 【${this.currentUser}】發起了【${tier.name}】討伐邀請，等待另一位玩家同意開戰！`, true);
+    this.notify(`⏳ 已向夥伴發送【${tier.name}】開戰邀請，對方同意後即正式開打！`, 'info');
+  },
+
+  beginAgreedBossRaid(invite, partnerParticipant) {
+    const tier = BOSS_TIERS.find(b => b.id === invite.bossTierId) || BOSS_TIERS[0];
+    const sac = this.ensurePitSacrifices();
+    const curCnt = sac[tier.reqType] || 0;
+    if (curCnt < tier.reqCount) {
+      this.notify(`🔒 祭品不足 (${curCnt}/${tier.reqCount})，無法啟動【${tier.name}】討伐戰！`, 'warn');
+      return;
+    }
+
+    // 雙方都同意後才扣除召喚該階級 Boss 所需的 30 隻祭品
     sac[tier.reqType] = Math.max(0, curCnt - tier.reqCount);
     this.world.pit.updatedAt = Date.now();
-    const myPower = this.getMySquadTotalPower();
+
+    const participants = {
+      [this.currentUser]: {
+        username: this.currentUser,
+        squadPower: invite.squadPower || this.getMySquadTotalPower(),
+        damage: 0,
+        squad: invite.squad || JSON.parse(JSON.stringify(this.getMySquadDucks()))
+      }
+    };
+    if (partnerParticipant && partnerParticipant.username) {
+      participants[partnerParticipant.username] = partnerParticipant;
+    }
 
     this.world.bossRaid = {
       active: true,
-      raidId: 'raid_' + Date.now(),
+      raidId: invite.raidId,
       bossTierId: tier.id,
       bossName: tier.name,
       bossHp: tier.maxHp,
@@ -1400,33 +1454,14 @@ const Game = {
       remainingSec: BOSS_RAID_DURATION_SEC,
       hostUser: this.currentUser,
       updatedAt: Date.now(),
-      participants: {
-        [this.currentUser]: {
-          username: this.currentUser,
-          squadPower: myPower,
-          damage: 0,
-          squad: JSON.parse(JSON.stringify(squad))
-        }
-      }
+      participants
     };
 
-    document.getElementById('squadBossModal').classList.add('hidden');
+    this.pendingOutgoingBossInvite = null;
     WorldCanvas.focusOnPit();
-
-    if (sendInvite) {
-      NetEngine.send('BOSS_RAID_INVITE', {
-        raidId: this.world.bossRaid.raidId,
-        hostUser: this.currentUser,
-        bossTierId: tier.id,
-        bossName: tier.name,
-        bossMaxHp: tier.maxHp
-      });
-      this.addLog(`🚨 【聯合討伐召集】【${this.currentUser}】派出了 ${squad.length} 隻主力戰鴨 (⚔️戰力 ${myPower}) 討伐【${tier.name}】！已邀請連線夥伴派遣 3 隻戰鴨合流！`, true);
-      this.notify(`⚔️ 已開啟【${tier.name}】討伐戰並向連線夥伴發送組隊邀請！`, 'success');
-    } else {
-      NetEngine.send('BOSS_RAID_START', { bossRaid: this.world.bossRaid });
-    }
-
+    NetEngine.send('BOSS_RAID_START', { bossRaid: this.world.bossRaid });
+    this.addLog(`🚨 雙方同意開戰！聯合小隊正式討伐【${tier.name}】(HP ${tier.maxHp.toLocaleString()})！`, true);
+    this.notify(`⚔️ 夥伴已同意！【${tier.name}】討伐戰正式開打！`, 'success');
     this.saveWorld(true);
     this.updateBossDamageMeterUI();
   },
@@ -1437,8 +1472,40 @@ const Game = {
     const box = document.getElementById('incomingRequestBanner');
     const txt = document.getElementById('incomingRequestText');
     const myPower = this.getMySquadTotalPower();
-    txt.innerHTML = `🚨 <b>【3+3 聯合隊伍召集】</b> 玩家【<b>${payload.hostUser}</b>】邀請你組建聯合隊伍討伐 <b>${payload.bossName}</b>！是否派遣你的 3 隻主力戰鴨 (⚔️戰力 ${myPower}) 一同出擊？`;
+    txt.innerHTML = `🚨 <b>【雙人 Boss 開戰邀請】</b> 玩家【<b>${payload.hostUser}</b>】邀請你一同討伐 <b>${payload.bossName}</b>（雙方同意才開打）！是否派遣你的 3 隻戰鴨 (⚔️戰力 ${myPower}) 出戰？`;
     box.classList.remove('hidden');
+  },
+
+  acceptBossRaidInvite(req) {
+    this.ensureValidSquad();
+    const squad = this.getMySquadDucks();
+    const myPower = this.getMySquadTotalPower();
+    if (squad.length === 0) {
+      this.notify('⚠️ 你目前沒有可出戰的鴨子！', 'warn');
+      return;
+    }
+    const participantData = {
+      username: this.currentUser,
+      squadPower: myPower,
+      damage: 0,
+      squad: JSON.parse(JSON.stringify(squad))
+    };
+    NetEngine.send('BOSS_RAID_ACCEPT', {
+      raidId: req.raidId,
+      username: this.currentUser,
+      participant: participantData
+    });
+    WorldCanvas.focusOnPit();
+    this.notify(`✅ 已同意【${req.hostUser}】的 Boss 邀請，準備開戰！`, 'success');
+  },
+
+  onRemoteBossRaidDeclined(payload) {
+    if (!payload) return;
+    if (this.pendingOutgoingBossInvite && (!payload.raidId || this.pendingOutgoingBossInvite.raidId === payload.raidId)) {
+      this.pendingOutgoingBossInvite = null;
+      this.notify(`❌ 夥伴【${payload.username}】婉拒了這次 Boss 討伐邀請！`, 'warn');
+      this.addLog(`❌ 【${payload.username}】婉拒了【${this.currentUser}】的 Boss 討伐邀請。`);
+    }
   },
 
   joinActiveBossRaid() {
@@ -1472,8 +1539,13 @@ const Game = {
   },
 
   onRemotePlayerJoinedRaid(payload) {
+    if (!payload) return;
+    if (this.pendingOutgoingBossInvite && (!payload.raidId || this.pendingOutgoingBossInvite.raidId === payload.raidId)) {
+      this.beginAgreedBossRaid(this.pendingOutgoingBossInvite, payload.participant);
+      return;
+    }
     const raid = this.world.bossRaid;
-    if (!raid || !raid.active || !payload) return;
+    if (!raid || !raid.active) return;
     raid.participants[payload.username] = payload.participant;
     raid.updatedAt = Date.now();
     this.notify(`🎉 夥伴【${payload.username}】的 3 隻戰鴨已加入聯合隊伍一同攻擊！`, 'success');
@@ -1483,6 +1555,8 @@ const Game = {
   onRemoteBossRaidStarted(payload) {
     if (payload && payload.bossRaid) {
       this.world.bossRaid = payload.bossRaid;
+      WorldCanvas.focusOnPit();
+      this.notify(`⚔️ 雙方同意開戰！【${payload.bossRaid.bossName}】討伐戰正式開始！`, 'success');
       this.updateBossDamageMeterUI();
     }
   },
@@ -1853,6 +1927,67 @@ const Game = {
     this.updateHUD();
   },
 
+  sacrificeAllPastureDucks() {
+    const plot = this.getMyPlot();
+    const acc = this.getMyAccount();
+    if (!plot || !acc || !Array.isArray(plot.ducks)) return;
+
+    const breedIds = new Set();
+    if (plot.breederMaleId) breedIds.add(plot.breederMaleId);
+    if (plot.breederFemaleId) breedIds.add(plot.breederFemaleId);
+    (this.ensureBreedingRooms(plot) || []).forEach(rm => {
+      if (rm.maleId) breedIds.add(rm.maleId);
+      if (rm.femaleId) breedIds.add(rm.femaleId);
+    });
+
+    const toSacrifice = [];
+    const kept = [];
+    plot.ducks.forEach(d => {
+      if (!breedIds.has(d.id) && !d.locked) {
+        toSacrifice.push(d);
+      } else {
+        kept.push(d);
+      }
+    });
+
+    if (toSacrifice.length === 0) {
+      this.notify('🕳️ 草地上沒有可丟進黑洞的鴨子（已保留交配區與鎖定鴨）！', 'info');
+      return;
+    }
+
+    plot.ducks = kept;
+    const def = WorldCanvas.plotDefinitions[plot.plotIndex];
+    let totalCoins = 0;
+
+    toSacrifice.forEach(duck => {
+      const info = evaluateDuckInfo(duck);
+      const coinReward = info.rarity.sacrificeValue + (info.isFullSet ? 30 : 0);
+      totalCoins += coinReward;
+      this.recordDuckSacrifice(duck);
+      const startWx = def ? def.x + (duck.lx || 0) : 0;
+      const startWy = def ? def.y + (duck.ly || 0) : 0;
+      WorldCanvas.spawnFlyingSacrificeDuck(duck, startWx, startWy);
+    });
+
+    acc.coins = (acc.coins || 0) + totalCoins;
+    acc.updatedAt = Date.now();
+    plot.updatedAt = Date.now();
+    this.ensureValidSquad();
+
+    if (
+      this.selectedEntity &&
+      this.selectedEntity.type === 'duck' &&
+      toSacrifice.some(d => d.id === this.selectedEntity.duck.id)
+    ) {
+      this.closeInspector();
+    }
+
+    const sacNow = this.ensurePitSacrifices();
+    this.notify(`🕳️ 已將 ${toSacrifice.length} 隻草地鴨全丟進黑洞！+${totalCoins} 鴨幣（普 ${sacNow.total}/30）`, 'success');
+    this.addLog(`🕳️ 【${this.currentUser}】一鍵將 ${toSacrifice.length} 隻草地鴨全數獻祭進中央黑洞，獲得 +${totalCoins} 鴨幣！`, true);
+    this.saveWorld(true);
+  },
+
   // ==========================================================================
   // 多人互動：偷摸基因分身蛋＋塗鴉惡作劇、幫孵加速(-20秒)、跨場相親、點對點交換
   // ==========================================================================
@@ -2029,15 +2164,18 @@ const Game = {
 
     const actionArea = document.getElementById('socialActionFooter');
     if (this.socialTab === 'breed') {
+      const myAcc = this.getMyAccount();
+      const cdLeftSec = this.getCrossBreedCooldownLeftSec(myAcc);
+      const cdTag = cdLeftSec > 0 ? ` (⏱️冷卻中 ${formatDurationMMSS(cdLeftSec)})` : '';
       actionArea.innerHTML = `
         <div class="social-desc">
-          💕 <b>跨場借種相親規則</b>：雙方的鴨子<b>都不會消失</b>！配對後生出<b> 97% 雙親遺傳 / 3% 變異</b>的混血蛋（非變異1分鐘、變異3分鐘自動孵化）！
+          💕 <b>跨場借種相親規則</b>：雙方的鴨子<b>都不會消失</b>！配對後生出<b> 97% 雙親遺傳 / 3% 變異</b>的混血蛋（每次相親冷卻 <b>3 分鐘</b>）！
         </div>
         <div class="social-btn-row">
           ${isOnline ? `
-            <button class="btn-lg btn-pink" onclick="Game.confirmCrossBreed(true)">💌 向在線夥伴【${targetPlot.owner}】發送相親邀請 (免費雙贏)</button>
+            <button class="btn-lg btn-pink" ${cdLeftSec > 0 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''} onclick="Game.confirmCrossBreed(true)">💌 向在線夥伴【${targetPlot.owner}】發送相親邀請 (免費雙贏)${cdTag}</button>
           ` : ''}
-          <button class="btn-lg btn-gold" onclick="Game.confirmCrossBreed(false)">⚡ 自助借種相親 (花費 200 鴨幣立即產出混血蛋)</button>
+          <button class="btn-lg btn-gold" ${cdLeftSec > 0 ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''} onclick="Game.confirmCrossBreed(false)">⚡ 自助借種相親 (花費 200 鴨幣立即產出混血蛋)${cdTag}</button>
         </div>
       `;
     } else {
@@ -2062,6 +2200,27 @@ const Game = {
     this.renderSocialModal();
   },
 
+  getCrossBreedCooldownLeftSec(acc) {
+    const breedCdMs = 180 * 1000;
+    const accTs = (acc && acc.lastCrossBreedAt) || 0;
+    const localTs = Number(localStorage.getItem('duckegg_breed_cd_' + (this.currentUser || '')) || 0);
+    const lastTs = Math.max(accTs, localTs);
+    return Math.max(0, Math.ceil((lastTs + breedCdMs - Date.now()) / 1000));
+  },
+
+  setCrossBreedCooldownNow(acc) {
+    const now = Date.now();
+    if (acc) {
+      acc.lastCrossBreedAt = now;
+      acc.updatedAt = now;
+    }
+    if (this.currentUser) {
+      try {
+        localStorage.setItem('duckegg_breed_cd_' + this.currentUser, String(now));
+      } catch (e) {}
+    }
+  },
+
   confirmCrossBreed(sendRequestToOnline) {
     const targetPlot = this.world.plots[this.socialTargetPlotIdx];
     const myPlot = this.getMyPlot();
@@ -2080,16 +2239,14 @@ const Game = {
       return;
     }
 
-    const breedCdMs = 180 * 1000;
-    const cdLeftSec = Math.ceil(((myAcc.lastCrossBreedAt || 0) + breedCdMs - Date.now()) / 1000);
+    const cdLeftSec = this.getCrossBreedCooldownLeftSec(myAcc);
     if (cdLeftSec > 0) {
       this.notify(`⏱️ 跨場相親冷卻中，請再等 ${formatDurationMMSS(cdLeftSec)}！`, 'warn');
       return;
     }
 
     if (sendRequestToOnline) {
-      myAcc.lastCrossBreedAt = Date.now();
-      myAcc.updatedAt = Date.now();
+      this.setCrossBreedCooldownNow(myAcc);
       NetEngine.send('BREED_REQUEST', {
         requester: this.currentUser,
         requesterPlotIdx: myPlot.plotIndex,
@@ -2110,8 +2267,7 @@ const Game = {
     }
 
     myAcc.coins -= 200;
-    myAcc.lastCrossBreedAt = Date.now();
-    myAcc.updatedAt = Date.now();
+    this.setCrossBreedCooldownNow(myAcc);
     const hybridEgg = this.generateOffspringEgg(
       myDuck,
       targetDuck,
@@ -2211,17 +2367,34 @@ const Game = {
     document.getElementById('socialModal').classList.add('hidden');
   },
 
-  executeDuckSwap(plotIdxA, duckIdA, plotIdxB, duckIdB) {
+  executeDuckSwap(plotIdxA, duckIdA, plotIdxB, duckIdB, notifyAndSave = true) {
     const plotA = this.world.plots[plotIdxA];
     const plotB = this.world.plots[plotIdxB];
-    if (!plotA || !plotB) return;
+    if (!plotA || !plotB) return false;
 
     const idxA = plotA.ducks.findIndex(d => d.id === duckIdA);
     const idxB = plotB.ducks.findIndex(d => d.id === duckIdB);
-    if (idxA === -1 || idxB === -1) return;
+    if (idxA === -1 || idxB === -1) return false;
 
     const duckA = plotA.ducks[idxA];
     const duckB = plotB.ducks[idxB];
+
+    // 交換前先將兩隻鴨子從原本的交配室與出戰小隊移出，避免殘留引用
+    this.clearDuckFromAllBreedRooms(plotA, duckA.id);
+    this.clearDuckFromAllBreedRooms(plotB, duckB.id);
+    if (Array.isArray(plotA.squadIds)) plotA.squadIds = plotA.squadIds.filter(id => id !== duckA.id);
+    if (Array.isArray(plotB.squadIds)) plotB.squadIds = plotB.squadIds.filter(id => id !== duckB.id);
+
+    // 確保交換後的鴨子座標在放牧草地範圍內（保留原本基因與性別不變）
+    const pb = WorldCanvas.PASTURE_BOUNDS;
+    duckA.lx = pb.minX + 80 + Math.random() * (pb.maxX - pb.minX - 160);
+    duckA.ly = pb.minY + 80 + Math.random() * (pb.maxY - pb.minY - 160);
+    duckA.tx = duckA.lx;
+    duckA.ty = duckA.ly;
+    duckB.lx = pb.minX + 80 + Math.random() * (pb.maxX - pb.minX - 160);
+    duckB.ly = pb.minY + 80 + Math.random() * (pb.maxY - pb.minY - 160);
+    duckB.tx = duckB.lx;
+    duckB.ty = duckB.ly;
 
     plotA.ducks[idxA] = duckB;
     plotB.ducks[idxB] = duckA;
@@ -2232,9 +2405,12 @@ const Game = {
     if (this.isMyPlot(plotIdxB)) this.unlockCompendiumForDuck(duckA);
     this.ensureValidSquad();
 
-    this.addLog(`🔄 交易完成！【${plotA.owner}】的「${duckA.name}」與【${plotB.owner}】的「${duckB.name}」已完成互換！`);
-    this.notify('🎉 怪鴨交換成功！已同步更新圖鑑與戰隊！', 'success');
-    this.saveWorld(true);
+    if (notifyAndSave) {
+      this.addLog(`🔄 交易完成！【${plotA.owner}】的「${duckA.name}」與【${plotB.owner}】的「${duckB.name}」已完成互換！`);
+      this.notify('🎉 怪鴨交換成功！已同步更新圖鑑與戰隊！', 'success');
+      this.saveWorld(true);
+    }
+    return true;
   },
 
   onReceiveTradeProposal(payload) {
@@ -2251,7 +2427,7 @@ const Game = {
     if (!req) return;
 
     if (req.mode === 'boss_invite') {
-      this.joinActiveBossRaid();
+      this.acceptBossRaidInvite(req);
     } else if (req.mode === 'breed') {
       const myPlot = this.getMyPlot();
       if (myPlot && myPlot.eggs.length >= myPlot.maxEggs) {
@@ -2268,18 +2444,54 @@ const Game = {
       this.notify('💕 已同意相親！混血相親蛋已放入你的鴨窩開始倒計時孵化！', 'success');
       this.saveWorld(true);
     } else if (req.mode === 'trade') {
-      this.executeDuckSwap(req.requesterPlotIdx, req.myDuck.id, req.targetPlotIdx, req.targetDuck.id);
-      NetEngine.send('TRADE_COMPLETED', req);
+      const ok = this.executeDuckSwap(req.requesterPlotIdx, req.myDuck.id, req.targetPlotIdx, req.targetDuck.id, true);
+      if (ok) {
+        NetEngine.send('TRADE_COMPLETED', req);
+      } else {
+        this.notify('⚠️ 交換失敗：其中一隻鴨子已不存在或已被獻祭！', 'warn');
+      }
     }
     this.pendingInteraction = null;
   },
 
   rejectIncomingInteraction() {
+    const req = this.pendingInteraction;
+    if (req && req.mode === 'boss_invite') {
+      NetEngine.send('BOSS_RAID_DECLINE', {
+        raidId: req.raidId,
+        username: this.currentUser
+      });
+    }
     this.pendingInteraction = null;
     document.getElementById('incomingRequestBanner').classList.add('hidden');
   },
 
   onTradeCompleted(payload) {
+    if (!payload) return;
+    if (payload.requester === this.currentUser && payload.myDuck && payload.targetDuck) {
+      const myPlot = this.getMyPlot();
+      if (myPlot) {
+        const myIdx = myPlot.ducks.findIndex(d => d.id === payload.myDuck.id);
+        if (myIdx !== -1) {
+          this.clearDuckFromAllBreedRooms(myPlot, payload.myDuck.id);
+          if (Array.isArray(myPlot.squadIds)) {
+            myPlot.squadIds = myPlot.squadIds.filter(id => id !== payload.myDuck.id);
+          }
+          const receivedDuck = JSON.parse(JSON.stringify(payload.targetDuck));
+          const pb = WorldCanvas.PASTURE_BOUNDS;
+          receivedDuck.lx = pb.minX + 80 + Math.random() * (pb.maxX - pb.minX - 160);
+          receivedDuck.ly = pb.minY + 80 + Math.random() * (pb.maxY - pb.minY - 160);
+          receivedDuck.tx = receivedDuck.lx;
+          receivedDuck.ty = receivedDuck.ly;
+          myPlot.ducks[myIdx] = receivedDuck;
+          myPlot.updatedAt = Date.now();
+          this.unlockCompendiumForDuck(receivedDuck);
+          this.ensureValidSquad();
+          this.saveWorld(true);
+        }
+      }
+      this.notify(`🎉 【${payload.targetOwner}】已同意交換！怪鴨已互換完成！`, 'success');
+    }
     this.addLog(`🔄 【${payload.requester}】與【${payload.targetOwner}】完成了線上怪鴨交易！`, false);
   },
 
@@ -2808,6 +3020,12 @@ window.addEventListener('keydown', (ev) => {
   if (ev.code === 'KeyH' || (ev.key && ev.key.toLowerCase() === 'h')) {
     ev.preventDefault();
     Game.hatchAllReadyEggs();
+    return;
+  }
+
+  if (ev.code === 'KeyG' || (ev.key && ev.key.toLowerCase() === 'g')) {
+    ev.preventDefault();
+    Game.sacrificeAllPastureDucks();
     return;
   }
 

@@ -46,10 +46,8 @@ const NetEngine = {
         this.sendHeartbeat();
       }, 3000);
       setInterval(() => {
-        if (!this.fbEventSource || this.fbEventSource.readyState !== 1) {
-          this.fbPollBackup();
-        }
-      }, 4500);
+        this.fbPollBackup();
+      }, 4000);
       window.addEventListener('beforeunload', () => {
         if (this.fbEnabled && this.fbBaseUrl) {
           fetch(`${this.fbBaseUrl}/presence/${this.clientId}.json`, {
@@ -543,6 +541,10 @@ const NetEngine = {
 
       case 'BOSS_RAID_ACCEPT':
         Game.onRemotePlayerJoinedRaid(payload);
+        break;
+
+      case 'BOSS_RAID_DECLINE':
+        Game.onRemoteBossRaidDeclined(payload);
         break;
 
       case 'BOSS_RAID_START':
