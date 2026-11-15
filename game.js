@@ -160,8 +160,28 @@ const Game = {
 
     if (Array.isArray(incomingWorld.plots)) {
       incomingWorld.plots.forEach((incPlot, idx) => {
-        if (!incPlot) return;
+        if (!incPlot || !incPlot.owner) return;
         const curPlot = this.world.plots[idx];
+
+        // 若兩個不同玩家暫時撞到同一個領地格，優先保留較早建立帳號的玩家，另一位交由下方碰撞處理搬遷到領地 #2
+        if (curPlot && curPlot.owner && curPlot.owner !== incPlot.owner) {
+          const curCreated = (this.world.accounts[curPlot.owner] && this.world.accounts[curPlot.owner].createdAt) || 0;
+          const incCreated = (this.world.accounts[incPlot.owner] && this.world.accounts[incPlot.owner].createdAt) || 0;
+          if (incCreated < curCreated) {
+            // 對方比較早創立：先暫存我方原本的領地資料，等下搬到空位
+            const displacedPlot = curPlot;
+            this.world.plots[idx] = incPlot;
+            this.ensureBreedingRooms(this.world.plots[idx]);
+            const freeIdx = this.allocatePlotForNewAccount();
+            displacedPlot.plotIndex = freeIdx;
+            this.world.plots[freeIdx] = displacedPlot;
+            if (this.world.accounts[displacedPlot.owner]) {
+              this.world.accounts[displacedPlot.owner].plotIndex = freeIdx;
+            }
+          }
+          return;
+        }
+
         if (!curPlot || (incPlot.updatedAt || 0) >= (curPlot.updatedAt || 0)) {
           if (curPlot && curPlot.ducks && incPlot.ducks) {
             incPlot.ducks.forEach(nd => {
@@ -177,8 +197,14 @@ const Game = {
       });
     }
 
+    this.resolvePlotCollisions();
+
     if (incomingWorld.pit) {
-      this.world.pit = incomingWorld.pit;
+      const incPitTime = incomingWorld.pit.updatedAt || 0;
+      const curPitTime = (this.world.pit && this.world.pit.updatedAt) || 0;
+      if (incPitTime > curPitTime) {
+        this.world.pit = incomingWorld.pit;
+      }
     }
     this.ensurePitSacrifices();
     if (incomingWorld.bossRaid && (!this.world.bossRaid || (incomingWorld.bossRaid.updatedAt || 0) >= (this.world.bossRaid.updatedAt || 0))) {
@@ -189,9 +215,50 @@ const Game = {
       localStorage.setItem(STORAGE_KEY_WORLD, JSON.stringify(this.world));
     } catch (e) {}
 
+    // 若登入畫面正開著，即時刷新已記錄帳號與領地編號
+    const authModal = document.getElementById('authModal');
+    if (authModal && !authModal.classList.contains('hidden')) {
+      this.renderSavedAccountsList();
+    }
+
     this.updateHUD();
     this.updateOnlinePlayersUI();
     this.updateBossDamageMeterUI();
+  },
+
+  // 確保每個已創建帳號擁有獨立領地（先建帳號者優先領地 #1，後加入者自動分配領地 #2）
+  resolvePlotCollisions() {
+    if (!this.world || !this.world.accounts) return;
+    const sortedUsers = Object.values(this.world.accounts).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const usedIndices = new Set();
+
+    sortedUsers.forEach(acc => {
+      if (acc.plotIndex !== undefined && acc.plotIndex !== null && !usedIndices.has(acc.plotIndex)) {
+        usedIndices.add(acc.plotIndex);
+        if (this.world.plots[acc.plotIndex]) {
+          this.world.plots[acc.plotIndex].plotIndex = acc.plotIndex;
+        }
+      } else {
+        const oldIdx = acc.plotIndex;
+        let newIdx = 0;
+        while (usedIndices.has(newIdx) && newIdx < 3) newIdx++;
+        usedIndices.add(newIdx);
+        acc.plotIndex = newIdx;
+        acc.updatedAt = Date.now();
+
+        if (this.world.plots[oldIdx] && this.world.plots[oldIdx].owner === acc.username && !this.world.plots[newIdx]) {
+          const moved = this.world.plots[oldIdx];
+          moved.plotIndex = newIdx;
+          moved.updatedAt = Date.now();
+          this.world.plots[newIdx] = moved;
+        }
+
+        if (this.currentUser === acc.username) {
+          WorldCanvas.focusOnPlot(newIdx, 0.72);
+          this.notify(`🚚 偵測到領地已有先行玩家，已自動為您分配專屬【巨型領地 #${newIdx + 1}】！`, 'info');
+        }
+      }
+    });
   },
 
   // ==========================================================================
@@ -1137,6 +1204,7 @@ const Game = {
 
     // 扣除召喚該階級 Boss 所需的 30 隻祭品
     sac[tier.reqType] = Math.max(0, curCnt - tier.reqCount);
+    this.world.pit.updatedAt = Date.now();
     const myPower = this.getMySquadTotalPower();
 
     this.world.bossRaid = {
@@ -1549,9 +1617,11 @@ const Game = {
     WorldCanvas.spawnFlyingSacrificeDuck(duck, startWx, startWy);
 
     const addedTags = this.recordDuckSacrifice(duck);
+    const sacNow = this.ensurePitSacrifices();
 
+    this.notify(`🕳️ 獻祭成功！+${coinReward} 鴨幣（祭壇進度：普 ${sacNow.total}/30）`, 'success');
     this.addLog(`🕳️ 你把【${info.rarity.name}${info.isFullSet ? '套裝' : ''}｜${duck.name}】獻祭進中央黑洞！獲得 +${coinReward} 鴨幣，累積祭品：${addedTags}！`);
-    NetEngine.send('PIT_SACRIFICE', { duck });
+    NetEngine.send('PIT_SACRIFICE', { duck, pit: this.world.pit });
 
     if (this.selectedEntity && this.selectedEntity.type === 'duck' && this.selectedEntity.duck.id === duckId) {
       this.closeInspector();
@@ -1561,6 +1631,7 @@ const Game = {
 
   recordDuckSacrifice(duck) {
     const sac = this.ensurePitSacrifices();
+    this.world.pit.updatedAt = Date.now();
     const info = evaluateDuckInfo(duck);
     const tags = ['🦆普鴨+1'];
 
@@ -1586,11 +1657,16 @@ const Game = {
     return tags.join('、');
   },
 
-  onRemotePitSacrifice(senderName, duck) {
+  onRemotePitSacrifice(senderName, duck, remotePit) {
     if (!duck) return;
     WorldCanvas.spawnFlyingSacrificeDuck(duck, (Math.random() - 0.5) * 600, (Math.random() - 0.5) * 600);
-    const addedTags = this.recordDuckSacrifice(duck);
-    this.addLog(`🕳️ 夥伴【${senderName}】將「${duck.name}」獻祭進中央黑洞！（全服共享祭品池：${addedTags}）`);
+    if (remotePit && (remotePit.updatedAt || 0) > ((this.world.pit && this.world.pit.updatedAt) || 0)) {
+      this.world.pit = remotePit;
+      this.ensurePitSacrifices();
+    } else {
+      this.recordDuckSacrifice(duck);
+    }
+    this.addLog(`🕳️ 夥伴【${senderName}】將「${duck.name}」獻祭進中央黑洞！`);
     this.updateHUD();
   },
 

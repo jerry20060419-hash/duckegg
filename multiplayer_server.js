@@ -8,7 +8,8 @@
 
 const NetEngine = {
   clientId: 'C-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
-  roomCode: 'DUCK-LOCAL',
+  FIXED_ROOM_ID: 'DUCK-FARM-JERRY-COOP-V3',
+  roomCode: 'DUCK-FARM-JERRY-COOP-V3',
   bc: null,
   peer: null,
   isHost: false,
@@ -16,6 +17,7 @@ const NetEngine = {
   clientConns: [],
   onlinePeers: {}, // { clientId: { username, plotIndex, squadPower, lastSeen } }
   hasLocalHttpServer: false,
+  reconnectTimer: null,
 
   async init() {
     if ('BroadcastChannel' in window) {
@@ -44,14 +46,13 @@ const NetEngine = {
     }
 
     const params = new URLSearchParams(window.location.search);
-    const autoRoom = params.get('room');
-    if (autoRoom) {
-      setTimeout(() => {
-        const inp = document.getElementById('roomCodeInput');
-        if (inp) inp.value = autoRoom;
-        this.joinPeerRoom(autoRoom);
-      }, 800);
-    }
+    const customRoom = params.get('room');
+    this.roomCode = (customRoom || this.FIXED_ROOM_ID).trim().toUpperCase();
+
+    // 一打開網頁即自動連入固定雙人房間（免輸入房號）
+    setTimeout(() => {
+      this.autoConnectFixedRoom(this.roomCode);
+    }, 350);
 
     setInterval(() => {
       this.sendHeartbeat();
@@ -88,38 +89,48 @@ const NetEngine = {
     } catch (e) {}
   },
 
-  createPeerRoom(customCode) {
+  autoConnectFixedRoom(roomId) {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (typeof Peer === 'undefined') {
-      Game.notify('⚠️ 跨網元件載入中或離線，目前已啟用本機/區網即時同步！', 'info');
+      this.updateNetStatusUI('🟢 本機即時同步模式');
       return;
     }
-    const randNum = Math.floor(1000 + Math.random() * 9000);
-    const code = (customCode || ('DUCK-' + randNum)).trim().toUpperCase();
 
-    if (this.peer) this.peer.destroy();
-    this.updateNetStatusUI(`🟡 正在啟動房間 (${code})...`);
+    if (this.peer) {
+      try { this.peer.destroy(); } catch (e) {}
+    }
+    this.clientConns = [];
+    this.hostConn = null;
+    this.updateNetStatusUI('🟡 正在自動連線雙人世界...');
 
-    this.peer = new Peer(code);
-    this.peer.on('open', (id) => {
+    const hostPeer = new Peer(roomId);
+    this.peer = hostPeer;
+
+    hostPeer.on('open', (id) => {
       this.isHost = true;
       this.roomCode = id;
-      const inp = document.getElementById('roomCodeInput');
-      if (inp) inp.value = id;
-      this.updateNetStatusUI(`🟢 線上房主 (${id})`);
-      Game.addLog(`🌐 已架設雙人連線伺服器【${id}】！把代碼傳給夥伴即可連入同一個大場地！`);
-      Game.notify(`🌐 跨網伺服器【${id}】已啟動！`, 'success');
+      this.updateNetStatusUI('🟡 已開房・等待夥伴上線中');
+      if (typeof Game !== 'undefined') {
+        Game.addLog('🌐 已自動建立固定雙人世界房間！夥伴打開網頁就會直接連進來！');
+      }
     });
 
-    this.peer.on('connection', (conn) => {
+    hostPeer.on('connection', (conn) => {
       this.clientConns.push(conn);
       conn.on('open', () => {
-        conn.send({
-          type: 'WORLD_SYNC',
-          senderId: this.clientId,
-          senderName: Game.currentUser || 'Host',
-          timestamp: Date.now(),
-          payload: { world: Game.world }
-        });
+        this.updateNetStatusUI('🟢 雙人即時連線中');
+        if (typeof Game !== 'undefined' && Game.world) {
+          conn.send({
+            type: 'WORLD_SYNC',
+            senderId: this.clientId,
+            senderName: Game.currentUser || 'Host',
+            timestamp: Date.now(),
+            payload: { world: Game.world }
+          });
+        }
         this.sendHeartbeat();
       });
 
@@ -129,37 +140,46 @@ const NetEngine = {
           if (c !== conn && c.open) c.send(packet);
         });
       });
+
+      conn.on('close', () => {
+        this.clientConns = this.clientConns.filter(c => c !== conn && c.open);
+        if (this.clientConns.length === 0) {
+          this.updateNetStatusUI('🟡 已開房・等待夥伴上線中');
+        }
+      });
     });
 
-    this.peer.on('error', (err) => {
-      this.updateNetStatusUI(`🟠 本機同步模式 (${err.type || 'Local'})`);
+    hostPeer.on('error', (err) => {
+      // 若房間 ID 已被另一位玩家佔用（代表夥伴已經先開好房了），自動改以訪客身分連入！
+      if (err && err.type === 'unavailable-id') {
+        this.connectAsFixedClient(roomId);
+      } else {
+        this.updateNetStatusUI('🟠 離線/重連中...');
+        this.reconnectTimer = setTimeout(() => this.autoConnectFixedRoom(roomId), 3500);
+      }
     });
   },
 
-  joinPeerRoom(targetCode) {
-    const clean = (targetCode || '').trim().toUpperCase();
-    if (!clean) {
-      Game.notify('請輸入要加入的伺服器房間代碼（例如 DUCK-1234）！', 'warn');
-      return;
+  connectAsFixedClient(roomId) {
+    if (this.peer) {
+      try { this.peer.destroy(); } catch (e) {}
     }
-    if (typeof Peer === 'undefined') {
-      Game.notify('⚠️ 無法載入跨網元件，目前使用本機多開同步模式。', 'warn');
-      return;
-    }
+    this.updateNetStatusUI('🟡 偵測到夥伴在線，正在加入...');
 
-    if (this.peer) this.peer.destroy();
-    this.updateNetStatusUI(`🟡 連線至 ${clean}...`);
+    const clientPeer = new Peer();
+    this.peer = clientPeer;
 
-    this.peer = new Peer();
-    this.peer.on('open', () => {
-      const conn = this.peer.connect(clean, { reliable: true });
+    clientPeer.on('open', () => {
+      const conn = clientPeer.connect(roomId, { reliable: true });
       this.hostConn = conn;
       conn.on('open', () => {
         this.isHost = false;
-        this.roomCode = clean;
-        this.updateNetStatusUI(`🟢 已連線 (${clean})`);
-        Game.addLog(`🎉 成功連入【${clean}】雙人農場伺服器！已同步全場領地！`);
-        Game.notify(`🎉 已連入伺服器【${clean}】！`, 'success');
+        this.roomCode = roomId;
+        this.updateNetStatusUI('🟢 雙人即時連線中');
+        if (typeof Game !== 'undefined') {
+          Game.addLog('🎉 已自動連入雙人世界！正在同步夥伴領地！');
+          Game.notify('🎉 已自動連上夥伴的雙人世界！', 'success');
+        }
         this.sendHeartbeat();
         this.broadcastWorldSync();
       });
@@ -169,6 +189,16 @@ const NetEngine = {
           this.onPacketReceived(packet);
         }
       });
+
+      conn.on('close', () => {
+        this.updateNetStatusUI('🟡 夥伴已離線・嘗試重新接管房間...');
+        this.reconnectTimer = setTimeout(() => this.autoConnectFixedRoom(roomId), 2000);
+      });
+    });
+
+    clientPeer.on('error', () => {
+      this.updateNetStatusUI('🟠 連線重試中...');
+      this.reconnectTimer = setTimeout(() => this.autoConnectFixedRoom(roomId), 3500);
     });
   },
 
@@ -262,7 +292,7 @@ const NetEngine = {
         break;
 
       case 'PIT_SACRIFICE':
-        Game.onRemotePitSacrifice(senderName, payload.duck, payload.points);
+        Game.onRemotePitSacrifice(senderName, payload.duck, payload.pit);
         break;
 
       case 'EGG_STOLEN':

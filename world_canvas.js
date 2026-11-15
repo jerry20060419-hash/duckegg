@@ -214,8 +214,9 @@ const WorldCanvas = {
 
         // 檢查是否拖到中央黑洞或底部黑洞傳送門
         const distToCenterPit = Math.hypot(wPos.x, wPos.y);
-        const overBottomPortal = (sy > this.height - 140 && Math.abs(sx - this.width / 2) < 190);
-        this.draggedDuck.overPit = !this.draggedDuck.duck.locked && ((distToCenterPit < this.PIT_RADIUS + 30) || overBottomPortal);
+        const overBottomPortal = (sy > this.height - 155 && Math.abs(sx - this.width / 2) < 220);
+        this.draggedDuck.nearPitZone = (distToCenterPit < this.PIT_RADIUS + 40) || overBottomPortal;
+        this.draggedDuck.overPit = !this.draggedDuck.duck.locked && this.draggedDuck.nearPitZone;
 
         // 檢查是否拖進自己領地的「💕 生蛋交配區 (3組交配室)」
         const plotDef = this.plotDefinitions[this.draggedDuck.plotIndex];
@@ -254,6 +255,10 @@ const WorldCanvas = {
         if (dd.hasMoved) {
           if (dd.overPit) {
             Game.sacrificeDuckToPit(dd.duck.id);
+            return;
+          }
+          if (dd.nearPitZone && dd.duck.locked) {
+            Game.notify('🔒 這隻鴨子已鎖定保護！請先點開右側面板解鎖後再丟進黑洞。', 'warn');
             return;
           }
 

@@ -40,11 +40,8 @@
     </div>
 
     <div class="hud-server-bar">
-      <span id="netStatusText" class="net-status-badge">🟢 本機/多開即時同步</span>
-      <button class="btn-sm btn-gold" onclick="NetEngine.createPeerRoom()">🌐 建立線上房號</button>
-      <input id="roomCodeInput" class="room-input" type="text" placeholder="房號 DUCK-XXXX" />
-      <button class="btn-sm btn-blue" onclick="NetEngine.joinPeerRoom(document.getElementById('roomCodeInput').value)">加入伺服器</button>
-      <button class="btn-sm btn-outline" onclick="document.getElementById('serverGuideModal').classList.remove('hidden')">❓ 連線說明</button>
+      <span id="netStatusText" class="net-status-badge">🟡 雙人世界自動連線中...</span>
+      <button class="btn-sm btn-outline" onclick="document.getElementById('serverGuideModal').classList.remove('hidden')">❓ 遊玩指南</button>
     </div>
   </header>
 
@@ -252,8 +249,8 @@
       </div>
       <div style="font-size:13px;line-height:1.7;color:#e2e8f0;display:flex;flex-direction:column;gap:10px;">
         <div>
-          <b style="color:#fde047;">1. 雙人跨網或區網連線：</b><br>
-          一人點擊右上角「<b>🌐 建立線上房號</b>」取得 <code>DUCK-XXXX</code> 代碼，另一人輸入代碼點「<b>加入伺服器</b>」，兩人的巨型鴨場（1號左領地、2號右領地）就會即時同步！
+          <b style="color:#fde047;">1. 雙人免房號自動連線 ＆ 獨立領地：</b><br>
+          只要打開同一個遊戲網址，系統會<b>自動將兩位玩家連進同一個雙人世界</b>（不需輸入房號）！先創建帳號的玩家自動入住<b>領地 #1</b>，後加入的玩家自動入住<b>領地 #2</b>！
         </div>
         <div>
           <b style="color:#f472b6;">2. 💕 3 組公母交配室（60秒產卵 / 3%變異蛋）＆ ⏱️ 自動孵化倒計時：</b><br>

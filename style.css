@@ -78,11 +78,17 @@ body, html {
   display: flex;
   align-items: center;
   gap: 5px;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.stat-pill:hover {
+  transform: translateY(-1px);
 }
 
 .stat-pill.pit-pill {
-  border-color: #f43f5e;
-  color: #fda4af;
+  border-color: #c084fc;
+  background: rgba(88, 28, 135, 0.35);
+  color: #f3e8ff;
   cursor: pointer;
 }
 
