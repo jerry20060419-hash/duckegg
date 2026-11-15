@@ -904,9 +904,6 @@ const WorldCanvas = {
       ctx.save();
       ctx.translate(def.x, def.y);
 
-      const hw = this.PLOT_W / 2;
-      const hh = this.PLOT_H / 2;
-
       // 1. 巨型領地草皮底板 (1120 x 820)
       ctx.fillStyle = hasOwner ? (isMine ? '#3f6212' : '#365314') : 'rgba(15, 23, 42, 0.55)';
       ctx.strokeStyle = isMine ? '#facc15' : (hasOwner ? (isOnline ? '#38bdf8' : '#a16207') : '#64748b');
