@@ -2594,6 +2594,22 @@ const Game = {
       const inBreedPen = breedRoomIdx >= 0;
       const inSquad = isMine && acc && (acc.squadIds || []).includes(d.id);
 
+      const partEntries = [
+        { label: '🗣️ 頭部', part: info.headPart, shortName: '頭部' },
+        { label: '🪽 翅膀', part: info.wingPart, shortName: '翅膀' },
+        { label: '🦆 身體', part: info.bodyPart, shortName: '身體' }
+      ];
+      const setCounts = {};
+      partEntries.forEach(({ part }) => {
+        setCounts[part.setId] = (setCounts[part.setId] || 0) + 1;
+      });
+      const nearEntry = !info.isFullSet
+        ? partEntries.find(({ part }) => setCounts[part.setId] === 2)
+        : null;
+      const missingPart = nearEntry
+        ? partEntries.find(({ part }) => part.setId !== nearEntry.part.setId)
+        : null;
+
       content.innerHTML = `
         <div class="insp-header">
           <span class="rarity-tag" style="background:${info.rarity.bg};color:${info.rarity.color};border-color:${info.rarity.border}">
@@ -2613,23 +2629,32 @@ const Game = {
         <div class="insp-owner">所屬領地：【${plot ? plot.owner : '未知'}】${inBreedPen ? ` (💕目前在交配室 #${breedRoomIdx + 1})` : ''}</div>
         ${info.isFullSet ? `
           <div class="set-awakened-box">
-            👑 <b>套裝覺醒 (戰力 1.5 倍加成)：《${info.matchedSet.setName}》</b><br>
+            👑 <b>套裝覺醒 3/3 (戰力 1.5 倍加成)：《${info.matchedSet.setName}》</b><br>
             <span>${info.matchedSet.setDesc}</span>
           </div>
-        ` : ''}
+        ` : (nearEntry ? `
+          <div class="set-progress-box">
+            ✨ <b>套裝進度：《${nearEntry.part.setName}》 2/3</b><br>
+            <span>還差【${missingPart ? missingPart.shortName : '最後部位'}】即可覺醒 1.5 倍戰力！</span>
+          </div>
+        ` : '')}
         <div class="gene-parts-list">
-          <div class="gene-row">
-            <span class="g-type">🗣️ 頭部 (+${info.headPart.power}戰力)</span>
-            <span class="g-name" style="color:${RARITIES[info.headPart.rarity].color}">[${RARITIES[info.headPart.rarity].name}] ${info.headPart.name}</span>
-          </div>
-          <div class="gene-row">
-            <span class="g-type">🪽 翅膀 (+${info.wingPart.power}戰力)</span>
-            <span class="g-name" style="color:${RARITIES[info.wingPart.rarity].color}">[${RARITIES[info.wingPart.rarity].name}] ${info.wingPart.name}</span>
-          </div>
-          <div class="gene-row">
-            <span class="g-type">🦆 身體 (+${info.bodyPart.power}戰力)</span>
-            <span class="g-name" style="color:${RARITIES[info.bodyPart.rarity].color}">[${RARITIES[info.bodyPart.rarity].name}] ${info.bodyPart.name}</span>
-          </div>
+          ${partEntries.map(({ label, part }) => {
+            const count = setCounts[part.setId] || 1;
+            const rowClass = count === 3 ? 'set-match-3' : (count === 2 ? 'set-match-2' : '');
+            const tagClass = count === 3 ? 'is-full' : (count === 2 ? 'is-pair' : '');
+            return `
+              <div class="gene-row ${rowClass}">
+                <div>
+                  <span class="g-type">${label} (+${part.power}戰力)</span>
+                  <span class="g-name" style="color:${RARITIES[part.rarity].color}">[${RARITIES[part.rarity].name}] ${part.name}</span>
+                </div>
+                <div class="g-set-tag ${tagClass}">
+                  🏷️ 套裝：${part.setName} (${count}/3)
+                </div>
+              </div>
+            `;
+          }).join('')}
         </div>
         <div class="insp-actions">
           ${isMine ? `

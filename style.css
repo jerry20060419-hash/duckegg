@@ -379,6 +379,17 @@ body, html {
   margin-bottom: 10px;
 }
 
+.set-progress-box {
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid #38bdf8;
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #e0f2fe;
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+
 .gene-parts-list {
   display: flex;
   flex-direction: column;
@@ -393,6 +404,16 @@ body, html {
   padding: 6px 9px;
 }
 
+.gene-row.set-match-2 {
+  border-color: #38bdf8;
+  background: rgba(14, 116, 144, 0.24);
+}
+
+.gene-row.set-match-3 {
+  border-color: #facc15;
+  background: rgba(161, 98, 7, 0.22);
+}
+
 .g-type {
   font-size: 11px;
   color: #94a3b8;
@@ -402,6 +423,22 @@ body, html {
 .g-name {
   font-size: 13px;
   font-weight: 800;
+}
+
+.g-set-tag {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.g-set-tag.is-pair {
+  color: #7dd3fc;
+  font-weight: 700;
+}
+
+.g-set-tag.is-full {
+  color: #fde047;
+  font-weight: 700;
 }
 
 .insp-actions {
